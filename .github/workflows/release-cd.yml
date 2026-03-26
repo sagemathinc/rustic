@@ -1,6 +1,11 @@
 name: Release Linux Binaries
 
 on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing tag to build and publish, e.g. v0.11.1
+        required: true
   push:
     tags:
       - "v*.*.*"
@@ -35,6 +40,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', github.event.inputs.release_tag) || github.ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # v1
@@ -57,7 +63,11 @@ jobs:
       - name: Package release artifact
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ github.event.inputs.release_tag }}"
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
           staging="$(mktemp -d)"
           cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "${staging}/${BINARY_NAME}"
           chmod 755 "${staging}/${BINARY_NAME}"
@@ -86,6 +96,7 @@ jobs:
         with:
           draft: true
           fail_on_unmatched_files: true
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
           files: |
             */rustic-*.tar.gz
             */rustic-*.tar.gz.sha256
