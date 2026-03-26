@@ -29,7 +29,7 @@ impl SelfUpdateCmd {
         let current_version = semver::Version::parse(self_update::cargo_crate_version!())?;
 
         let release = self_update::backends::github::Update::configure()
-            .repo_owner("rustic-rs")
+            .repo_owner("sagemathinc")
             .repo_name("rustic")
             .bin_name("rustic")
             .show_download_progress(true)
@@ -44,7 +44,7 @@ impl SelfUpdateCmd {
         match current_version.cmp(&upstream_version) {
             std::cmp::Ordering::Greater => {
                 println!(
-                    "Your rustic version {current_version} is newer than the stable version {upstream_version} on upstream!"
+                    "Your rustic version {current_version} is newer than the latest published version {upstream_version}!"
                 );
             }
             std::cmp::Ordering::Equal => {
