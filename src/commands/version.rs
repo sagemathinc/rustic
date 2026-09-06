@@ -20,6 +20,7 @@ impl Runnable for VersionCmd {
                     "version": crate::commands::version(),
                     "capabilities": {
                         "strict_backup": true,
+                        "strict_local_metadata": 1,
                         "strict_restore": true,
                         "sparse_required_restore": cfg!(target_os = "linux"),
                         "hole_aware_backup": cfg!(target_os = "linux"),

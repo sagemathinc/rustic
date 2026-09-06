@@ -112,7 +112,7 @@ def main():
                 or any(cap.get(name) is not True for name in
                        ["strict_backup", "strict_restore", "sparse_required_restore", "hole_aware_backup"])
                 or any(type(cap.get(name)) is not int or cap[name] != 1 for name in
-                       ["backup_inventory", "backup_admission"])):
+                       ["backup_inventory", "backup_admission", "backup_exclusion_inventory", "strict_local_metadata"])):
             raise ValueError("native capabilities are missing")
         versions = re.findall(r"GLIBC_([0-9]+(?:\.[0-9]+)+)", command(["readelf", "--version-info", "--wide", str(binary)]))
         if not versions:
