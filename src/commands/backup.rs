@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use rustic_core::{
-    BackupOptions, CommandInput, ConfigOptions, KeyOptions, LocalSourceFilterOptions,
-    LocalSourceSaveOptions, ParentOptions, PathList, SnapshotOptions,
+    BackupAdmissionOptions, BackupOptions, CommandInput, ConfigOptions, KeyOptions,
+    LocalSourceFilterOptions, LocalSourceSaveOptions, ParentOptions, PathList, SnapshotOptions,
     repofile::{SnapshotFile, SnapshotId},
 };
 
@@ -92,6 +92,11 @@ pub struct BackupCmd {
     #[clap(long)]
     #[merge(strategy=conflate::bool::overwrite_false)]
     strict: bool,
+
+    /// Work admission (limits reject, never silently exclude files).
+    #[clap(flatten, next_help_heading = "Backup work admission")]
+    #[serde(flatten)]
+    admission: BackupAdmissionOptions,
 
     /// Output generated snapshot in json format
     #[clap(long)]
@@ -459,6 +464,7 @@ impl BackupCmd {
             .ignore_filter_opts(self.ignore_filter_opts)
             .no_scan(self.no_scan)
             .strict(self.strict)
+            .admission(self.admission)
             .dry_run(config.global.dry_run);
 
         let mut snap = self.snap_opts.to_snapshot()?;

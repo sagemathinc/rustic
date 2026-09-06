@@ -106,6 +106,78 @@ fn test_backup_and_check_passes() -> TestResult<()> {
     Ok(())
 }
 
+#[test]
+fn inventory_and_backup_enforce_the_same_logical_work_limits() -> TestResult<()> {
+    let temp_dir = setup()?;
+    let source = temp_dir.path().join("source");
+    std::fs::create_dir(&source)?;
+    std::fs::File::create(source.join("huge"))?.set_len(1 << 40)?;
+    std::fs::write(source.join("ordinary"), b"abc")?;
+    let output = rustic_runner(&temp_dir)?
+        .args([
+            "backup-inventory",
+            "--max-entries",
+            "2",
+            "--preflight-timeout-seconds",
+            "5",
+        ])
+        .arg(&source)
+        .timeout(std::time::Duration::from_secs(15))
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(report["apparent_bytes"], (1_u64 << 40) + 3);
+    assert_eq!(report["chunk_references_bound"], 2_097_153);
+    for command in ["backup-inventory", "backup"] {
+        rustic_runner(&temp_dir)?
+            .args([command, "--max-file-bytes", "1000"])
+            .arg(&source)
+            .timeout(std::time::Duration::from_secs(15))
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("max-file-bytes"));
+    }
+    assert_eq!(
+        std::fs::read_dir(temp_dir.path().join("repo/snapshots"))?.count(),
+        0
+    );
+
+    // Explicit normal globs affect both commands identically; rejection does
+    // not itself add a filter or grant permission to omit a file.
+    let output = rustic_runner(&temp_dir)?
+        .args([
+            "backup-inventory",
+            "--glob",
+            "!huge",
+            "--max-file-bytes",
+            "3",
+        ])
+        .arg(&source)
+        .output()?;
+    assert!(output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(report["entries"], 1);
+    assert_eq!(report["apparent_bytes"], 3);
+    rustic_runner(&temp_dir)?
+        .args([
+            "backup",
+            "--strict",
+            "--no-scan",
+            "--glob",
+            "!huge",
+            "--max-file-bytes",
+            "3",
+        ])
+        .arg(&source)
+        .assert()
+        .success();
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn diff_reports_unchanged_symlinks_as_identical() -> TestResult<()> {

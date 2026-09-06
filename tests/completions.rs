@@ -87,3 +87,23 @@ fn completions_do_not_load_profiles() -> TestResult<()> {
 
     Ok(())
 }
+
+#[test]
+fn version_capabilities_do_not_load_profiles() -> TestResult<()> {
+    let profile = tempfile::Builder::new().suffix(".toml").tempfile()?;
+    std::fs::write(profile.path(), "not valid TOML")?;
+    let output = Command::new(env!("CARGO_BIN_EXE_rustic"))
+        .env("RUSTIC_USE_PROFILE", profile.path())
+        .args(["version", "--json"])
+        .output()?;
+    assert!(output.status.success());
+    let version: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(version["schema_version"], 1);
+    assert_eq!(version["capabilities"]["strict_backup"], true);
+    assert_eq!(version["capabilities"]["backup_admission"], 1);
+    assert_eq!(
+        version["capabilities"]["sparse_required_restore"],
+        cfg!(target_os = "linux")
+    );
+    Ok(())
+}

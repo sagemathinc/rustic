@@ -1,6 +1,7 @@
 //! Rustic Subcommands
 
 pub(crate) mod backup;
+pub(crate) mod backup_inventory;
 pub(crate) mod cat;
 pub(crate) mod check;
 pub(crate) mod completions;
@@ -75,6 +76,9 @@ use self::find::FindCmd;
 enum RusticCmd {
     /// Backup to the repository
     Backup(Box<BackupCmd>),
+
+    /// Inspect local backup metadata and work bounds without reading contents or saving a snapshot
+    BackupInventory(Box<backup_inventory::BackupInventoryCmd>),
 
     /// Show raw data of files and blobs in a repository
     Cat(Box<CatCmd>),
@@ -229,9 +233,12 @@ impl Configurable<RusticConfig> for EntryPoint {
         // That's why it says `_config`, because it's not read at all and therefore not needed.
         let mut config = self.config.clone();
 
-        // Completion generation only needs the command definition. In particular, it must not
-        // try to read a profile which may be inaccessible to the user generating completions.
-        if matches!(self.commands, RusticCmd::Completions(_)) {
+        // Introspection must not read project-controlled profiles or run their hooks.
+        if matches!(
+            self.commands,
+            RusticCmd::Completions(_) | RusticCmd::Version(_)
+        ) {
+            config.global.hooks = crate::config::hooks::Hooks::default();
             return Ok(config);
         }
 
