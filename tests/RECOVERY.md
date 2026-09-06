@@ -12,6 +12,22 @@ CLI commit. A checksum distributed beside an arbitrary download is not an
 authenticity check. Preserve the attestation and trusted verification material
 when preparing an offline recovery kit. Do not rely on an artifact's filename.
 
+With a GitHub CLI that supports attestation verification, use the independently
+reviewed source commit, not one read from an unverified archive:
+
+```sh
+gh attestation verify CANDIDATE.tar.xz --bundle attestation.json \
+  --repo sagemathinc/rustic \
+  --signer-workflow sagemathinc/rustic/.github/workflows/sparse-qualification.yml \
+  --source-digest REVIEWED_FULL_CLI_COMMIT \
+  --source-ref refs/heads/cocalc/sparse-backups --deny-self-hosted-runners
+```
+
+For fully offline verification, also supply `--custom-trusted-root` with trust
+material obtained and reviewed beforehand. A bundle supplied with an artifact
+is evidence to verify, not itself a trust anchor. Qualification CI verifies both
+architecture bundles and confirms that an unrelated source commit is rejected.
+
 Extract into a fresh operator-controlled directory, then run `sha256sum -c
 SHA256SUMS`. Compare `manifest.json` with the approved binary hash, CLI/core
 commits, lockfile and target. Confirm host compatibility before executing.

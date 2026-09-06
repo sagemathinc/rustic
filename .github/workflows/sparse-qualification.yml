@@ -69,6 +69,39 @@ jobs:
         id: provenance
         with:
           subject-path: candidates/**/*.tar.xz
+      - name: Verify each candidate against this exact source and workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          candidates=(candidates/sparse-candidate-*/*.tar.xz)
+          test "${#candidates[@]}" -eq 2
+          mkdir verified
+          for candidate in "${candidates[@]}"; do
+            gh attestation verify "$candidate" \
+              --bundle "$ATTESTATION_BUNDLE" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/sparse-qualification.yml" \
+              --source-digest "$GITHUB_SHA" \
+              --source-ref refs/heads/cocalc/sparse-backups \
+              --deny-self-hosted-runners --format json \
+              > "verified/$(basename "$candidate").json"
+            if gh attestation verify "$candidate" --bundle "$ATTESTATION_BUNDLE" \
+                --repo "$GITHUB_REPOSITORY" \
+                --source-digest 0000000000000000000000000000000000000000; then
+              echo "verification incorrectly accepted an unrelated source commit" >&2
+              exit 1
+            fi
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sparse-candidate-verification
+          path: verified/*
+          if-no-files-found: error
+          retention-days: 90
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sparse-candidate-provenance
