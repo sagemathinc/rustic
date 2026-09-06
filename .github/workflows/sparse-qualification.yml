@@ -1,0 +1,40 @@
+name: Sparse Recovery Qualification
+
+on:
+  pull_request:
+  push:
+    branches: ["cocalc/sparse-backups"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # v1
+        with:
+          toolchain: 1.94.0
+      - run: cargo test --locked --tests --jobs 4
+      - run: cargo build --locked --release --jobs 4
+      - name: Qualify read-only Btrfs snapshots and enforced quota
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y btrfs-progs
+          disk="$(mktemp /tmp/sparse-qualification.XXXXXX.img)"
+          mount="$(mktemp -d /tmp/sparse-qualification.XXXXXX)"
+          trap 'sudo umount "$mount" || true; sudo rm -f "$disk"; rmdir "$mount" || true' EXIT
+          truncate -s 8G "$disk"
+          sudo mkfs.btrfs -q "$disk"
+          sudo mount -o loop "$disk" "$mount"
+          sudo touch "$mount/.cocalc-disposable-sparse-qualification"
+          sudo python3 tests/sparse_btrfs.py "$PWD/target/release/rustic" "$mount"

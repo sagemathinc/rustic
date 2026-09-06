@@ -45,12 +45,12 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # v1
         with:
-          toolchain: 1.88.0
+          toolchain: 1.94.0
           target: ${{ matrix.target }}
 
       - name: Install cross
         if: ${{ matrix.use_cross }}
-        run: cargo install --locked cross
+        run: cargo install --locked --version 0.2.5 cross
 
       - name: Build release binary
         run: |

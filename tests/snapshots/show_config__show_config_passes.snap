@@ -9,6 +9,7 @@ dry-run = false
 dry-run-warmup = false
 check-index = false
 no-progress = false
+json-progress = false
 show-time-offset = false
 
 [global.hooks]
@@ -37,6 +38,8 @@ run-after = []
 run-failed = []
 run-finally = []
 
+[init]
+
 [snapshot-filter]
 filter-hosts = []
 filter-labels = []
@@ -46,8 +49,8 @@ filter-tags = []
 filter-tags-exact = []
 
 [backup]
-stdin-filename = ""
 no-scan = false
+strict = false
 json = false
 long = false
 init = false
@@ -64,6 +67,7 @@ git-ignore = false
 no-require-git = false
 custom-ignorefiles = []
 exclude-if-present = []
+exclude-if-xattr = []
 one-file-system = false
 tags = []
 delete-never = false
@@ -75,6 +79,8 @@ run-before = []
 run-after = []
 run-failed = []
 run-finally = []
+
+[backup.options]
 
 [backup.metrics-labels]
 

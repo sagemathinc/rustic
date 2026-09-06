@@ -2,6 +2,86 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.4](https://github.com/rustic-rs/rustic/compare/v0.11.3...v0.11.4) - 2026-08-17
+
+### Added
+
+- Add sparse file support for restore ([#530](https://github.com/rustic-rs/rustic_core/pull/530))
+- support exclusion on the opendal source ([#1812](https://github.com/rustic-rs/rustic/pull/1812), [#535](https://github.com/rustic-rs/rustic_core/pull/535))
+- stdio protocol between warmup program and rustic ([#1782](https://github.com/rustic-rs/rustic_core/pull/1782), [#524](https://github.com/rustic-rs/rustic_core/pull/524))
+
+### Fixed
+
+- read full packs from cold backend in hot/cold case ([#542](https://github.com/rustic-rs/rustic_core/pull/542), [#1868](https://github.com/rustic-rs/rustic/pull/1868))
+- use no parent for stdin source ([#536](https://github.com/rustic-rs/rustic_core/pull/536))
+- link jemallocator-global so the jemallocator feature applies ([#1821](https://github.com/rustic-rs/rustic/pull/1821))
+- treat unchanged symlinks as identical in diff ([#1829](https://github.com/rustic-rs/rustic/pull/1829))
+- keep completions independent from profiles ([#1830](https://github.com/rustic-rs/rustic/pull/1830))
+- allow scrolling long read-only TUI text ([#1851](https://github.com/rustic-rs/rustic/pull/1851))
+- record CLI version in snapshot metadata ([#1803](https://github.com/rustic-rs/rustic/pull/1803))
+- read stdin-filename from config file ([#1813](https://github.com/rustic-rs/rustic/pull/1813))
+- deny unknown forget options in config profile ([#1810](https://github.com/rustic-rs/rustic/pull/1810))
+- set correct UID/GID for dump into tar ([#1801](https://github.com/rustic-rs/rustic/pull/1801))
+
+### Other
+
+- refactor packer and optimize memory allocations ([#533](https://github.com/rustic-rs/rustic_core/pull/533))
+- reduce memory usage for index ([#537](https://github.com/rustic-rs/rustic_core/pull/537))
+- Add pCloud service example config ([#1775](https://github.com/rustic-rs/rustic/pull/1775))
+- Update README ([#1783](https://github.com/rustic-rs/rustic/pull/1783), [#1785](https://github.com/rustic-rs/rustic/pull/1785))
+- update dependencies ([#1882](https://github.com/rustic-rs/rustic/pull/1882), [#1854](https://github.com/rustic-rs/rustic/pull/1854), [#541](https://github.com/rustic-rs/rustic_core/pull/541), [#539](https://github.com/rustic-rs/rustic_core/pull/539))
+
+## [0.11.3](https://github.com/rustic-rs/rustic/compare/v0.11.2...v0.11.3) - 2026-06-03
+
+### Added
+
+- Add opendal as backup source ([#1769](https://github.com/rustic-rs/rustic/pull/1769), [#518](https://github.com/rustic-rs/rustic_core/pull/518))
+- Add ls option to backup command ([#1771](https://github.com/rustic-rs/rustic/pull/1771))
+- add JSON progress output option ([#1751](https://github.com/rustic-rs/rustic/pull/1751))
+- enable pcloud backend feature ([#515](https://github.com/rustic-rs/rustic_core/pull/515))
+- Add warning about profile-substitute without profiles ([#1743](https://github.com/rustic-rs/rustic/pull/1743))
+- Add version command ([#1738](https://github.com/rustic-rs/rustic/pull/1738))
+- scope destination scan to snapshot-relevant paths for restore ([#493](https://github.com/rustic-rs/rustic_core/pull/493))
+
+### Fixed
+
+- Throttle configuration example ([#1766](https://github.com/rustic-rs/rustic/pull/1766))
+- add required scheme to sftp endpoint ([#1758](https://github.com/rustic-rs/rustic/pull/1758))
+- use indicatif-log-bridge to avoid breaking progress bar on log ([#1747](https://github.com/rustic-rs/rustic/pull/1747))
+- respect config-supplied backup(.snapshot).init ([#1742](https://github.com/rustic-rs/rustic/pull/1742))
+- local BE - don't leave broken files when writing fails ([#499](https://github.com/rustic-rs/rustic_core/pull/499))
+- include repo root in warmup paths ([#509](https://github.com/rustic-rs/rustic_core/pull/509)) ([#510](https://github.com/rustic-rs/rustic_core/pull/510))
+
+### Other
+
+- dependency updates ([#1772](https://github.com/rustic-rs/rustic/pull/1772), [#1767](https://github.com/rustic-rs/rustic/pull/1767), [#507](https://github.com/rustic-rs/rustic_core/pull/507))
+- config/README.md: mention string requirement for [repository.options] ([#1750](https://github.com/rustic-rs/rustic/pull/1750))
+- Add link/note to opendal's backend documentation ([#1749](https://github.com/rustic-rs/rustic/pull/1749))
+- add gdrive service example ([#1760](https://github.com/rustic-rs/rustic/pull/1760))
+- Use Smallvec ([#514](https://github.com/rustic-rs/rustic_core/pull/514))
+- parallelize blob fetch in dump command ([#501](https://github.com/rustic-rs/rustic_core/pull/501))
+
+## [0.11.2](https://github.com/rustic-rs/rustic/compare/v0.11.1...v0.11.2) - 2026-04-05
+
+### Added
+
+- preserve hardlinks on restore ([#492](https://github.com/rustic-rs/rustic_core/pull/492), [#495](https://github.com/rustic-rs/rustic_core/pull/495))
+- add exclude-if-xattr option ([#1718](https://github.com/rustic-rs/rustic/pull/1718), [#491](https://github.com/rustic-rs/rustic_core/pull/491))
+
+### Fixed
+
+- Fix gitignore-handling ([#494](https://github.com/rustic-rs/rustic_core/pull/494))
+- Add keep-{within-}hourly to config/full.toml ([#1704](https://github.com/rustic-rs/rustic/pull/1704))
+- fix some typos ([#1710](https://github.com/rustic-rs/rustic/pull/1710))
+
+### Other
+
+- Performance optimizations ([#487](https://github.com/rustic-rs/rustic_core/pull/487), [#489](https://github.com/rustic-rs/rustic_core/pull/489))
+- move to axum for webdav command ([#1720](https://github.com/rustic-rs/rustic/pull/1720))
+- update dependencies ([#1698](https://github.com/rustic-rs/rustic/pull/1698), [#1723](https://github.com/rustic-rs/rustic/pull/1723), [#1721](https://github.com/rustic-rs/rustic/pull/1721))
+- *(deps)* unpin and update self_update ([#1699](https://github.com/rustic-rs/rustic/pull/1699))
+- *(deps)* bump quinn-proto from 0.11.13 to 0.11.14 ([#1703](https://github.com/rustic-rs/rustic/pull/1703))
+
 ## [0.11.1](https://github.com/rustic-rs/rustic/compare/v0.11.0...v0.11.1) - 2026-03-05
 
 ### Added

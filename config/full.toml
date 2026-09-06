@@ -17,6 +17,7 @@ log-level-dryrun = "info" # any of "off", "error", "warn", "info", "debug", "tra
 log-level-dependencies = "warn" # any of "off", "error", "warn", "info", "debug", "trace"; default: "warn"
 log-file = "/path/to/rustic.log" # Default: not set
 no-progress = false
+json-progress = false
 progress-interval = "100ms"
 group-by = "host,label,paths"
 check-index = false
@@ -79,7 +80,7 @@ rclone-command = "rclone serve restic --addr localhost:0" # Only rclone; Default
 use-password = "true" # Only rclone
 rest-url = "http://localhost:8000" # Only rclone; Default: determine REST URL from rclone output
 connections = "20" # Only opendal backends; Default: Not set
-throttle = "10kB,10MB" # limit and burst per second; only opendal backends; Default: Not set
+throttle = "10kB,250MB" # limit and burst per second; only opendal backends; burst size *must* be greater than repository pack size; Default: Not set
 # Note that opendal backends use several service-dependent options which may be specified here, see
 # https://opendal.apache.org/docs/rust/opendal/services/index.html
 
@@ -101,6 +102,25 @@ run-before = ["echo before"] # Default: []
 run-after = ["echo after"] # Run after if successful, default: []
 run-failed = ["echo failed"] # Default: []
 run-finally = ["echo finally"] # Always run after, default: []
+
+# init options only apply when initializing a repo and set the in-repo configuration. Those can be changed using the `config` command
+[init]
+set-version = 2 # sets repository version
+set-chunker = "rabin" # currently, "rabin" and "fixed_size" is supported
+set-chunk-size = "1 MiB"
+set-chunk-min-size = "512 kiB"
+set-chunk-max-size = "8 MiB"
+set-compression = 5
+set-append-only = false
+set-datapack-size = "32 MiB"
+set-datapack-size-limit = "4 GiB"
+set-datapack-growfactor = 32
+set-treepack-size = "4 MiB"
+set-treepack-size-limit = "4 GiB"
+set-treepack-growfactor = 32
+set-min-packsize-tolerate-percent = 30
+set-max-packsize-tolerate-percent = 0
+set-extra-verify = true
 
 # Snapshot-filter options: These options apply to all commands that use snapshot filters
 [snapshot-filter]
@@ -147,6 +167,9 @@ iglob-files = []
 git-ignore = false
 no-require-git = false
 exclude-if-present = [".nobackup", "CACHEDIR.TAG"] # Default: not set
+exclude-if-xattr = [
+  "com.apple.metadata:com_apple_backup_excludeItem",
+] # Default: not set
 custom-ignorefiles = [".rusticignore", ".backupignore"] # Default: not set
 one-file-system = false
 exclude-larger-than = "100MB" # Default: not set
@@ -168,9 +191,18 @@ label-a = "xxx"
 
 # Backup options for specific sources - all above options are also available here and replace them for the given source
 [[backup.snapshots]]
-sources = ["/path/to/source1"]
+sources = [
+  "opendal:s3",
+] # Note: For opendal, currently only a single source is supported; see next [[backup.snapshots]] section for a local path example
 label = "label" # Default: not set
 # .. and so on. see [backup]
+
+# Additional backup source options - depending on source; currently only relevant for a "opendal:" source.
+# These can be only set in the config file.
+[backup.snapshots.options]
+connections = "20" # Default: Not set
+# Note that an opendal source use several service-dependent options which may be specified here, see
+# https://opendal.apache.org/docs/rust/opendal/services/index.html
 
 # Source-specific hooks: The given commands when backing up the defined source
 [backup.snapshots.hooks]
@@ -214,6 +246,7 @@ keep-ids = [
 ] # Keep all snapshots whose ID starts with any of these strings, default: not set
 keep-last = 0
 keep-minutely = 10
+keep-hourly = 5
 keep-daily = 3
 keep-weekly = 0
 keep-monthly = 0
@@ -222,6 +255,7 @@ keep-half-yearly = 0
 keep-yearly = 10
 keep-within = "0s"
 keep-within-minutely = "2 hours"
+keep-within-hourly = "3 days"
 keep-within-daily = "0 seconds"
 keep-within-weekly = "2 months"
 keep-within-monthly = "1 year"

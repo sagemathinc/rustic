@@ -23,7 +23,7 @@ use itertools::Itertools;
 use jiff::{Timestamp, Zoned, tz::TimeZone};
 use log::Level;
 use reqwest::Url;
-use rustic_core::SnapshotGroupCriterion;
+use rustic_core::{ConfigOptions, SnapshotGroupCriterion};
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 #[cfg(not(all(feature = "mount", feature = "webdav")))]
@@ -57,6 +57,10 @@ pub struct RusticConfig {
     /// Repository options
     #[clap(flatten, next_help_heading = "Repository options")]
     pub repository: AllRepositoryOptions,
+
+    /// Options for initializing a repository
+    #[clap(skip)]
+    pub init: ConfigOptions,
 
     /// Snapshot filter options
     #[clap(flatten, next_help_heading = "Snapshot filter options")]
@@ -138,6 +142,10 @@ impl RusticConfig {
                 config_content
             };
             let mut config = Self::load_toml(config_content)?;
+            // sanity check
+            if config.global.profile_substitute_env && config.global.use_profiles.is_empty() {
+                merge_logs.push((Level::Warn, "Option `profile-substitute-env` is given without any profiles to load! Note that this option does NOT apply to the file where it is specified!".to_string()));
+            }
             // if "use_profile" is defined in config file, merge the referenced profiles first
             for profile in &config.global.use_profiles.clone() {
                 config.merge_profile(profile, merge_logs, Level::Warn)?;
@@ -147,10 +155,7 @@ impl RusticConfig {
             let paths_string = paths.iter().map(|path| path.display()).join(", ");
             merge_logs.push((
                 level_missing,
-                format!(
-                    "using no config file, none of these exist: {}",
-                    &paths_string
-                ),
+                format!("using no config file, none of these exist: {paths_string}",),
             ));
         };
         Ok(())

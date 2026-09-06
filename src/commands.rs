@@ -29,6 +29,7 @@ pub(crate) mod snapshots;
 pub(crate) mod tag;
 #[cfg(feature = "tui")]
 pub(crate) mod tui;
+pub(crate) mod version;
 #[cfg(feature = "webdav")]
 pub(crate) mod webdav;
 
@@ -155,6 +156,9 @@ enum RusticCmd {
     /// Start a webdav server which allows to access the repository
     #[cfg(feature = "webdav")]
     Webdav(Box<WebDavCmd>),
+
+    /// Print version information
+    Version(Box<version::VersionCmd>),
 }
 
 fn styles() -> Styles {
@@ -167,6 +171,10 @@ fn styles() -> Styles {
 
 fn version() -> &'static str {
     option_env!("PROJECT_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+}
+
+pub(crate) fn program_version() -> String {
+    format!("rustic {}", version())
 }
 
 /// Entry point for the application. It needs to be a struct to allow using subcommands!
@@ -221,6 +229,12 @@ impl Configurable<RusticConfig> for EntryPoint {
         // That's why it says `_config`, because it's not read at all and therefore not needed.
         let mut config = self.config.clone();
 
+        // Completion generation only needs the command definition. In particular, it must not
+        // try to read a profile which may be inaccessible to the user generating completions.
+        if matches!(self.commands, RusticCmd::Completions(_)) {
+            return Ok(config);
+        }
+
         // collect "RUSTIC_REPO_OPT*" and "OPENDAL*" env variables.
         // also add the standardized OTEL variables manually
         // since clap does not support multiple variables for a single arg
@@ -265,21 +279,24 @@ impl Configurable<RusticConfig> for EntryPoint {
             }
         }
 
-        // start logger
-        config
-            .global
-            .logging_options
-            .start_logger(config.global.dry_run)
-            .map_err(|e| FrameworkErrorKind::ConfigError.context(e))?;
+        // start logger also check if version command was supplied by the user
+        // if so skip logging for version
+        if !matches!(self.commands, RusticCmd::Version(_)) {
+            config
+                .global
+                .logging_options
+                .start_logger(config.global.dry_run)
+                .map_err(|e| FrameworkErrorKind::ConfigError.context(e))?;
 
-        if config.global.logging_options.log_file.is_some() {
-            info!("rustic {}", version());
-            info!("command: {:?}", std::env::args_os().collect::<Vec<_>>());
-        }
+            if config.global.logging_options.log_file.is_some() {
+                info!("rustic {}", version());
+                info!("command: {:?}", std::env::args_os().collect::<Vec<_>>());
+            }
 
-        // display logs from merging
-        for (level, merge_log) in merge_logs {
-            log!(level, "{merge_log}");
+            // display logs from merging
+            for (level, merge_log) in merge_logs {
+                log!(level, "{merge_log}");
+            }
         }
 
         match &self.commands {
