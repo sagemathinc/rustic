@@ -24,6 +24,7 @@ jobs:
           toolchain: 1.94.0
       - uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2
       - run: cargo test --locked --tests --jobs 4
+      - run: python3 tests/qualification_bundle_test.py
       - run: cargo build --locked --release --jobs 4
       - name: Qualify read-only Btrfs snapshots and enforced quota
         shell: bash
@@ -38,4 +39,39 @@ jobs:
           sudo mkfs.btrfs -q "$disk"
           sudo mount -o loop "$disk" "$mount"
           sudo touch "$mount/.cocalc-disposable-sparse-qualification"
-          sudo python3 tests/sparse_btrfs.py "$PWD/target/release/rustic" "$mount"
+          sudo python3 tests/sparse_btrfs.py "$PWD/target/release/rustic" "$mount" "$PWD/qualification.json"
+      - name: Package tested candidate and recovery evidence
+        run: python3 tests/qualification_bundle.py target/release/rustic qualification.json candidate
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sparse-candidate-${{ matrix.runner }}
+          path: candidate/*
+          if-no-files-found: error
+          retention-days: 90
+
+  attest:
+    # Only this small, source-free job gets signing permissions. Untrusted PRs
+    # may build/test candidates but cannot acquire our provenance identity.
+    if: github.repository == 'sagemathinc/rustic' && github.ref == 'refs/heads/cocalc/sparse-backups' && github.event_name != 'pull_request'
+    needs: qualify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: sparse-candidate-*
+          path: candidates
+      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        id: provenance
+        with:
+          subject-path: candidates/**/*.tar.xz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sparse-candidate-provenance
+          path: ${{ steps.provenance.outputs.bundle-path }}
+          if-no-files-found: error
+          retention-days: 90

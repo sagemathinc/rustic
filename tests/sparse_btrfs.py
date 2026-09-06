@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Opt-in qualification on a marked, disposable Btrfs mount. Requires root."""
 import errno
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,8 @@ import tempfile
 
 def main():
     binary = str(Path(sys.argv[1]).resolve(strict=True))
+    with open(binary, "rb") as file:
+        binary_sha256 = hashlib.file_digest(file, "sha256").hexdigest()
     mount = Path(sys.argv[2]).resolve(strict=True)
     marker = mount / ".cocalc-disposable-sparse-qualification"
     assert os.geteuid() == 0, "requires root on an isolated test runner"
@@ -120,11 +123,22 @@ def main():
         assert (stage / "mixed").stat().st_ino == (stage / "linked").stat().st_ino
         assert os.readlink(stage / "symlink") == "mixed"
         run(common + ["check", "--read-data"])
-        print(json.dumps({"ok": True, "summaries": summaries, "allocated": allocations}))
+        report = {"schema_version": 1, "ok": True, "binary_sha256": binary_sha256,
+                  "summaries": summaries, "allocated": allocations,
+                  "quota_bytes": 4 * 1024**3, "dense_probe_errno": "EDQUOT",
+                  "immutable_snapshots": True, "byte_verification": "union-of-extents"}
     finally:
         for subvol in reversed(subvolumes):
             subprocess.run(["btrfs", "subvolume", "delete", str(subvol)], check=True, timeout=60)
         shutil.rmtree(root)
+    with open(binary, "rb") as file:
+        assert hashlib.file_digest(file, "sha256").hexdigest() == binary_sha256
+    # Only publish evidence once cleanup also succeeded.
+    if len(sys.argv) > 3:
+        with open(sys.argv[3], "x", encoding="utf8") as file:
+            json.dump(report, file, indent=2)
+            file.write("\n")
+    print(json.dumps(report))
 
 
 def verify_extents(original, restored):
