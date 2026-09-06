@@ -24,6 +24,7 @@ impl Runnable for VersionCmd {
                         "sparse_required_restore": cfg!(target_os = "linux"),
                         "hole_aware_backup": cfg!(target_os = "linux"),
                         "backup_inventory": 1,
+                        "backup_exclusion_inventory": 1,
                         "backup_admission": 1,
                     },
                 })

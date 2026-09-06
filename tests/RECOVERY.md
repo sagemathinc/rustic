@@ -63,3 +63,30 @@ correct bytes while allocating the entire apparent file size. Format
 compatibility alone therefore does not make an older reader quota-safe.
 Keep this tested reader available for offline recovery and rollback; do not
 discard it merely because an older writer can read the repository.
+
+## Bounded Exclusion Inventory
+
+`backup-inventory --exclusion-report --exclude-larger-than SIZE
+--max-report-bytes BYTES SOURCE` streams an NDJSON header, zero or more excluded
+file records, and one final `complete` record. It uses the ordinary source
+filters, but counts oversized files against traversal and metadata budgets
+before excluding them from retained-content budgets. Equality with SIZE is
+eligible. Supply explicit admission limits and a supervised runtime as well.
+
+Require BOTH a successful process exit and the completion record. Any prefix
+from a failed, interrupted, or over-budget scan is incomplete evidence. Reports
+must be stored outside user-writable trees and bound to the immutable source,
+effective policy, and actual backup result. A completed inventory does not mean
+a backup succeeded, is complete, or fits a restore quota.
+
+Paths are lossless hex-encoded OS strings (`unix-bytes-hex` on Linux), not glob
+patterns or JSON text filenames. Validate selection boundaries after decoding;
+do not turn report paths into shell commands or unescaped exclusion globs.
+Inventory counters, sizes, inodes and nanosecond timestamps use decimal strings
+so consumers do not round them through JavaScript numbers. File-version fields
+are bounded metadata hints, not content hashes or authorization. Missing or
+overridden metadata must not hide new warnings.
+
+The inventory itself writes no repository snapshots. Back up the SAME immutable
+tree with the SAME normal filters and size threshold, strict completion and
+retained-work limits. Upload/report failures must not authorize source deletion.
