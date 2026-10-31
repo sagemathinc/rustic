@@ -17,7 +17,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from rt.scenarios import EXPECTED_FAILURES, Context, run_all
+from rt.scenarios import EXPECTED_FAILURES, Context, run_all, unexplained
 
 # Fixture case -> why CI can't run it.  Under ROUNDTRIP_STRICT=1 every other
 # skip fails the run.
@@ -30,8 +30,8 @@ def main() -> int:
     ctx = Context(binary, work, as_root=os.geteuid() == 0)
     results = run_all(ctx, only=set(sys.argv[3:]))
     fs = subprocess.run(["findmnt", "-n", "-o", "FSTYPE,OPTIONS", "-T", str(work)], capture_output=True, text=True)
-    failed = sorted(n for n, problems in results.items() if problems and n not in EXPECTED_FAILURES)
-    expected = sorted(n for n, problems in results.items() if problems and n in EXPECTED_FAILURES)
+    failed = sorted(n for n, problems in results.items() if unexplained(n, problems))
+    expected = sorted(n for n, problems in results.items() if problems and n in EXPECTED_FAILURES and n not in failed)
     unexpected = sorted(n for n, problems in results.items() if not problems and n in EXPECTED_FAILURES)
     report = {
         "filesystem": fs.stdout.strip(),
@@ -39,9 +39,9 @@ def main() -> int:
         "skipped": ctx.skipped,
         "passed": sorted(n for n, problems in results.items() if not problems and n not in EXPECTED_FAILURES),
         "failed": failed,
-        "expected_failures": {n: {"reason": EXPECTED_FAILURES[n], "problems": results[n]} for n in expected},
+        "expected_failures": {n: {"reason": EXPECTED_FAILURES[n][0], "problems": results[n]} for n in expected},
         "unexpected_passes": unexpected,
-        "problems": {n: results[n] for n in failed},
+        "problems": {n: unexplained(n, results[n]) for n in failed},
     }
     print(json.dumps(report, indent=2))
     if os.environ.get("ROUNDTRIP_STRICT") == "1":

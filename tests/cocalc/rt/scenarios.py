@@ -1,6 +1,7 @@
 """Restore scenarios.  Each returns a list of problems; empty means it passed."""
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -181,6 +182,24 @@ def mismatch_without_delete(ctx):
     return ["restore exited 0 although directory 'empty-dir' could not be created"]
 
 
+def file_over_dir_without_delete(ctx):
+    """Without --delete, a snapshot file whose path is a directory in the target is an error."""
+    source = ctx.fresh("source-file-over-dir")
+    (source / "file").write_bytes(b"file")
+    (source / "empty-file").write_bytes(b"")
+    snapshot = ctx.backup(source)
+    problems = []
+    for name in ("file", "empty-file"):
+        target = ctx.fresh(f"file-over-dir-{name}")
+        (target / name).mkdir()
+        try:
+            ctx.restore(snapshot, target)
+            problems.append(f"restore exited 0 although file {name!r} is a directory in the target")
+        except RusticFailed:
+            pass
+    return problems
+
+
 def root_metadata(ctx):
     """The backed-up directory's own mode, owner, times and xattrs, restored onto the target."""
     source = ctx.fresh("source-root")
@@ -231,15 +250,43 @@ def incremental(ctx):
     return problems
 
 
-# Scenario -> why it fails today.  A listed scenario that passes is reported
+# Scenario -> (why it fails today, patterns).  A listed scenario counts as an
+# expected failure only if every problem it reports fully matches one of its
+# patterns; any other problem (including an error) fails the run, so the rest
+# of the scenario keeps guarding.  A listed scenario that passes is reported
 # as an unexpected pass, so the entry is removed together with the fix.
-EXPECTED_FAILURES: dict[str, str] = {
-    "over_existing": "restore --delete does not recreate a directory the target has as a file",
-    "mismatch_without_delete": "a restore that cannot create a snapshot directory exits 0",
-    "deep_path": "the source walker uses full paths, so entries beyond PATH_MAX are skipped",
-    "deep_path_recorded": "a backup that skipped entries does not record that in the snapshot",
-    "root_metadata": "the restore target's own metadata is not restored",
+DEEP = r"\d\d-d{247}"
+EXPECTED_FAILURES: dict[str, tuple[str, list[str]]] = {
+    "over_existing": (
+        "restore --delete does not recreate a directory the target has as a file",
+        [r"missing: 'empty-dir'"],
+    ),
+    "mismatch_without_delete": (
+        "a restore that cannot create a snapshot directory exits 0",
+        [r"restore exited 0 although directory 'empty-dir' could not be created"],
+    ),
+    "deep_path": (
+        "the source walker uses full paths, so entries beyond PATH_MAX are skipped",
+        [rf"missing: '{DEEP}(/{DEEP})*(/bottom)?'"],
+    ),
+    "deep_path_recorded": (
+        "a backup that skipped entries does not record that in the snapshot",
+        [r"snapshot of a backup that skipped entries has no error_count: .*"],
+    ),
+    "root_metadata": (
+        "the restore target's own metadata is not restored",
+        [r"root (mode|uid|gid|mtime_ns|xattrs): .*"],
+    ),
 }
+
+
+def unexplained(name: str, problems: list[str]) -> list[str]:
+    """The problems of a scenario that its EXPECTED_FAILURES entry doesn't cover."""
+    if name not in EXPECTED_FAILURES:
+        return problems
+    patterns = [re.compile(p, re.DOTALL) for p in EXPECTED_FAILURES[name][1]]
+    return [p for p in problems if not any(pat.fullmatch(p) for pat in patterns)]
+
 
 # incremental changes the source, so it runs last
 SCENARIOS = [
@@ -251,6 +298,7 @@ SCENARIOS = [
     deep_path,
     deep_path_recorded,
     mismatch_without_delete,
+    file_over_dir_without_delete,
     root_metadata,
     incremental,
 ]
