@@ -79,4 +79,4 @@ jobs:
           esac
           sudo mount -o "$options" "$disk" "$mount"
           sudo mkdir "$mount/work"
-          sudo python3 tests/cocalc/roundtrip.py "$PWD/bin/rustic" "$mount/work"
+          sudo env ROUNDTRIP_STRICT=1 python3 -B tests/cocalc/roundtrip.py "$PWD/bin/rustic" "$mount/work"
