@@ -2,8 +2,9 @@ name: Sparse Recovery Qualification
 
 on:
   pull_request:
+    branches: ["cocalc/main"]
   push:
-    branches: ["cocalc/sparse-backups"]
+    branches: ["cocalc/main"]
   workflow_dispatch:
 
 permissions:
@@ -52,7 +53,7 @@ jobs:
   attest:
     # Only this small, source-free job gets signing permissions. Untrusted PRs
     # may build/test candidates but cannot acquire our provenance identity.
-    if: github.repository == 'sagemathinc/rustic' && github.ref == 'refs/heads/cocalc/sparse-backups' && github.event_name != 'pull_request'
+    if: github.repository == 'sagemathinc/rustic' && github.ref == 'refs/heads/cocalc/main' && github.event_name != 'pull_request'
     needs: qualify
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -86,7 +87,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/sparse-qualification.yml" \
               --source-digest "$GITHUB_SHA" \
-              --source-ref refs/heads/cocalc/sparse-backups \
+              --source-ref refs/heads/cocalc/main \
               --deny-self-hosted-runners --format json \
               > "verified/$(basename "$candidate").json"
             if gh attestation verify "$candidate" --bundle "$ATTESTATION_BUNDLE" \

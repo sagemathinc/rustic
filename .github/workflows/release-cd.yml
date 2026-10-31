@@ -1,18 +1,27 @@
 name: Release Linux Binaries
 
+# Builds a tagged CoCalc release (e.g. v0.11.4-cocalc.1, see COCALC.md) for
+# x86_64 and arm64, natively, with a sha256 file per archive.  The archive
+# names match what CoCalc's install.ts downloads:
+#   rustic-<tag>-linux-{x86_64,arm64}.tar.gz
+# A tag is only built if it points at a commit on the `cocalc/main` branch on
+# which "CoCalc CI" succeeded for a push to `cocalc/main`.  The builds check out
+# that verified commit, not the (movable) tag, and the release is only created
+# if the tag still points at it.  The GitHub release is a draft; it is
+# published by hand after checking the assets.
+
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing tag to build and publish, e.g. v0.11.1
+        description: Existing tag to build and publish, e.g. v0.11.4-cocalc.1
         required: true
   push:
     tags:
-      - "v*.*.*"
-      - "v*.*.*-*"
+      - "v*.*.*-cocalc.*"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,56 +31,84 @@ env:
   BINARY_NAME: rustic
 
 jobs:
+  verify:
+    name: Verify the tagged commit
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      - id: tag
+        run: echo "tag=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+      - name: The tag is a CoCalc release of a commit on cocalc/main that passed CoCalc CI
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-cocalc\.[0-9]+$ ]] || { echo "not a CoCalc release tag: $TAG" >&2; exit 1; }
+          sha="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          git fetch -q origin cocalc/main
+          git merge-base --is-ancestor "$sha" origin/cocalc/main || { echo "$sha is not on the cocalc/main branch" >&2; exit 1; }
+          # A successful run for a push to cocalc/main of exactly this commit
+          # (a pull_request run tests a merge ref, not this commit).
+          ok="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cocalc-ci.yml/runs?head_sha=$sha&event=push&branch=cocalc/main&status=success" \
+            --jq "[.workflow_runs[] | select(.head_sha == \"$sha\" and .event == \"push\" and .head_branch == \"cocalc/main\" and .conclusion == \"success\")] | length")"
+          [ "$ok" -gt 0 ] || { echo "CoCalc CI has not succeeded for a push of $sha to cocalc/main" >&2; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.asset_name }}
-    runs-on: ubuntu-latest
+    needs: verify
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04
             asset_name: linux-x86_64
-            use_cross: false
-          - target: aarch64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
             asset_name: linux-arm64
-            use_cross: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
-          fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', github.event.inputs.release_tag) || github.ref }}
+          # the verified commit itself, never the tag (which could move)
+          ref: ${{ needs.verify.outputs.sha }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # v1
         with:
           toolchain: 1.94.0
-          target: ${{ matrix.target }}
-
-      - name: Install cross
-        if: ${{ matrix.use_cross }}
-        run: cargo install --locked --version 0.2.5 cross
 
       - name: Build release binary
-        run: |
-          if [ "${{ matrix.use_cross }}" = "true" ]; then
-            cross build --locked --release --target ${{ matrix.target }}
-          else
-            cargo build --locked --release --target ${{ matrix.target }}
-          fi
-
-      - name: Package release artifact
+        env:
+          TAG: ${{ needs.verify.outputs.tag }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            version="${{ github.event.inputs.release_tag }}"
-          else
-            version="${GITHUB_REF_NAME}"
-          fi
+          # `rustic --version` then prints e.g. "rustic 0.11.4-cocalc.1",
+          # the version install.ts compares with.
+          PROJECT_VERSION="${TAG#v}" cargo build --locked --release
+          test "$(target/release/rustic --version)" = "rustic ${TAG#v}"
+
+      - name: Package release artifact
+        env:
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          set -euo pipefail
           staging="$(mktemp -d)"
-          cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "${staging}/${BINARY_NAME}"
+          cp "target/release/${BINARY_NAME}" "${staging}/${BINARY_NAME}"
           chmod 755 "${staging}/${BINARY_NAME}"
-          archive="${BINARY_NAME}-${version}-${{ matrix.asset_name }}.tar.gz"
+          archive="${BINARY_NAME}-${TAG}-${{ matrix.asset_name }}.tar.gz"
           tar -C "${staging}" -czf "${archive}" "${BINARY_NAME}"
           sha256sum "${archive}" > "${archive}.sha256"
 
@@ -84,10 +121,28 @@ jobs:
             rustic-*.tar.gz.sha256
 
   release:
-    name: Publish GitHub release
-    needs: build
-    runs-on: ubuntu-latest
+    name: Publish GitHub release (draft)
+    needs: [verify, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
+      - name: The tag still points at the verified commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.tag }}
+          SHA: ${{ needs.verify.outputs.sha }}
+        run: |
+          set -euo pipefail
+          ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha')"
+          type="${ref%% *}"
+          object="${ref#* }"
+          if [ "$type" = "tag" ]; then
+            object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object" --jq '.object.sha')"
+          fi
+          [ "$object" = "$SHA" ] || { echo "tag $TAG now points at $object, not the verified $SHA" >&2; exit 1; }
+
       - name: Download all workflow artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
 
@@ -96,7 +151,7 @@ jobs:
         with:
           draft: true
           fail_on_unmatched_files: true
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+          tag_name: ${{ needs.verify.outputs.tag }}
           files: |
             */rustic-*.tar.gz
             */rustic-*.tar.gz.sha256

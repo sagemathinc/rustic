@@ -1,0 +1,82 @@
+name: CoCalc CI
+
+# The fast suite for the `cocalc/main` branch (see COCALC.md): unit and integration
+# tests, then a backup/restore round trip on each filesystem CoCalc runs on,
+# on x86_64 and arm64.  A release tag is only built from a commit on which
+# this workflow succeeded (release-cd.yml).
+
+on:
+  pull_request:
+    branches: ["cocalc/main"]
+  push:
+    branches: ["cocalc/main"]
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # v1
+        with:
+          toolchain: 1.94.0
+      - uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2
+      - run: cargo test --locked --tests --jobs 4
+      - run: cargo build --locked --release --jobs 4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rustic-${{ matrix.runner }}
+          path: target/release/rustic
+          if-no-files-found: error
+          retention-days: 7
+
+  roundtrip:
+    name: Round trip (${{ matrix.fs }}, ${{ matrix.runner }})
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        fs: [btrfs, btrfs-zstd, ext4]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rustic-${{ matrix.runner }}
+          path: bin
+      - name: Back up, restore and compare on a ${{ matrix.fs }} loopback
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x bin/rustic
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq btrfs-progs
+          disk="$(mktemp /tmp/cocalc-roundtrip.XXXXXX.img)"
+          mount="$(mktemp -d /tmp/cocalc-roundtrip.XXXXXX)"
+          trap 'sudo umount "$mount" || true; rm -f "$disk"; rmdir "$mount" || true' EXIT
+          truncate -s 4G "$disk"
+          case "${{ matrix.fs }}" in
+            btrfs) sudo mkfs.btrfs -q "$disk"; options=loop ;;
+            btrfs-zstd) sudo mkfs.btrfs -q "$disk"; options=loop,compress=zstd ;;
+            ext4) sudo mkfs.ext4 -q -F "$disk"; options=loop ;;
+          esac
+          sudo mount -o "$options" "$disk" "$mount"
+          sudo mkdir "$mount/work"
+          sudo python3 tests/cocalc/roundtrip.py "$PWD/bin/rustic" "$mount/work"
