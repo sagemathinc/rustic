@@ -70,31 +70,37 @@ fn snapshots_show_source_errors() -> TestResult<()> {
         .arg(&source)
         .assert()
         .failure();
-    rustic(&temp_dir)
-        .arg("backup")
-        .arg(&source)
-        .assert()
-        .success();
-    rustic(&temp_dir)
+    // a non-strict backup saves the snapshot and records how many errors it met
+    let output = rustic(&temp_dir)
         .args(["backup", "--json"])
         .arg(&source)
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"error_count\""));
+        .get_output()
+        .stdout
+        .clone();
+    let snapshot: serde_json::Value = serde_json::from_slice(&output)?;
+    let errors = snapshot["summary"]["error_count"]
+        .as_u64()
+        .expect("summary.error_count is a number");
+    assert!(
+        errors > 0,
+        "the backup skipped entries without counting them"
+    );
 
+    // both views show exactly that count
     rustic(&temp_dir)
         .arg("snapshots")
         .assert()
         .success()
-        .stdout(predicate::str::is_match(r"\(\d+ errors\)")?);
+        .stdout(predicate::str::contains(format!("({errors} errors)")));
     rustic(&temp_dir)
         .args(["snapshots", "--long"])
         .assert()
         .success()
-        .stdout(
-            predicate::str::contains("Errors")
-                .and(predicate::str::contains("this snapshot is incomplete")),
-        );
+        .stdout(predicate::str::is_match(format!(
+            r"Errors\s*\S*\s*{errors} errors while reading the source; this snapshot is incomplete"
+        ))?);
     Ok(())
 }
 
