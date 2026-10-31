@@ -47,13 +47,13 @@ merged.
     btrfs, btrfs with `compress=zstd`, and ext4 loopbacks, on x86_64 and arm64.
     The fixture (`tests/cocalc/rt/fixture.py`) covers contents, sparse files,
     modes, owners, times, symlinks, hardlink groups, special files, xattrs,
-    ACLs, file capabilities, unusual names and a large directory. The
-    scenarios (`tests/cocalc/rt/scenarios.py`) restore it dense, sparse (holes
-    must stay holes), as a subtree, over a changed copy with `--delete
-    --verify-existing`, and from an incremental backup with a parent. A
-    skipped case fails CI unless `CI_ALLOWED_SKIPS` names it with a reason;
-    known failures are listed in `EXPECTED_FAILURES`, and one that passes
-    fails CI until its entry is removed.
+    ACLs, file capabilities, unusual names and a large directory. The scenarios
+    (`tests/cocalc/rt/scenarios.py`) restore it dense, sparse (holes must stay
+    holes), as a subtree, over a changed copy with `--delete` and
+    `--verify-existing`, and from an incremental backup with a parent. A skipped
+    case fails CI unless `CI_ALLOWED_SKIPS` names it with a reason; known
+    failures are listed in `EXPECTED_FAILURES`, and one that passes fails CI
+    until its entry is removed.
 - **Sparse Recovery Qualification** (`sparse-qualification.yml`): sparse files
   and quotas on btrfs, with provenance for the tested binaries.
 - More suites will follow: change-detection adversaries, crash safety,
