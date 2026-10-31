@@ -13,7 +13,20 @@ SPARSE = ["--sparse", "by-content-required"]
 
 
 class RusticFailed(Exception):
-    pass
+    """A rustic command that exited non-zero, with what it said."""
+
+    def __init__(self, args, returncode: int, stderr: str):
+        self.argv = [str(a) for a in args]
+        self.returncode = returncode
+        self.stderr = stderr
+        super().__init__(f"rustic {' '.join(self.argv)} exited {returncode}: {stderr[-2000:]}")
+
+
+def failed_because(err: RusticFailed, pattern: str, what: str) -> list[str]:
+    """No problems if the command failed for the reason the scenario expects."""
+    if re.search(pattern, err.stderr):
+        return []
+    return [f"{what} failed for another reason (exit {err.returncode}): {err.stderr[-500:]}"]
 
 
 class Context:
@@ -32,8 +45,7 @@ class Context:
             [*self.common, *args], cwd=cwd or self.work, env=self.env, capture_output=True, timeout=1200
         )
         if result.returncode:
-            tail = result.stderr.decode(errors="replace")[-2000:]
-            raise RusticFailed(f"rustic {' '.join(map(str, args))} exited {result.returncode}: {tail}")
+            raise RusticFailed(args, result.returncode, result.stderr.decode(errors="replace"))
         return result.stdout
 
     def backup(self, source: Path, *args) -> str:
@@ -131,9 +143,8 @@ def excluded_hardlink_member(ctx):
     return compare(want, ctx.restore(snapshot, ctx.fresh("restored-excluded")))
 
 
-def deep_path(ctx):
-    """A file whose full path is longer than PATH_MAX (4096 bytes)."""
-    source = ctx.fresh("source-deep")
+def make_deep_tree(source: Path) -> Path:
+    """20 nested 250-byte directory names and a file: deeper than PATH_MAX."""
     here = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
     try:
         os.chdir(source)
@@ -145,6 +156,12 @@ def deep_path(ctx):
     finally:
         os.fchdir(here)
         os.close(here)
+    return source
+
+
+def deep_path(ctx):
+    """A file whose full path is longer than PATH_MAX (4096 bytes)."""
+    source = make_deep_tree(ctx.fresh("source-deep"))
     want = manifest(source)
     snapshot = ctx.backup(source)
     return compare(want, ctx.restore(snapshot, ctx.fresh("restored-deep")))
@@ -154,7 +171,7 @@ def deep_path_recorded(ctx):
     """A backup that had to skip entries says so in the snapshot, and --strict refuses it."""
     source = ctx.work / "source-deep"  # made by deep_path, or here when run alone
     if not source.exists():
-        deep_path(ctx)
+        make_deep_tree(ctx.fresh("source-deep"))
     snapshot = json.loads(ctx.run("backup", "--json", ".", cwd=source))
     problems = []
     if not snapshot.get("summary", {}).get("error_count"):
@@ -162,8 +179,8 @@ def deep_path_recorded(ctx):
     try:
         ctx.run("backup", "--strict", ".", cwd=source)
         problems.append("backup --strict saved a snapshot although it skipped entries")
-    except RusticFailed:
-        pass
+    except RusticFailed as err:
+        problems += failed_because(err, r"Strict backup failed because source inspection", "backup --strict")
     return problems
 
 
@@ -177,8 +194,8 @@ def mismatch_without_delete(ctx):
     (target / "empty-dir").write_bytes(b"a file where the snapshot has a directory")
     try:
         ctx.restore(snapshot, target)
-    except RusticFailed:
-        return []
+    except RusticFailed as err:
+        return failed_because(err, r"Cannot restore the directory `[^`]*empty-dir`", "restore")
     return ["restore exited 0 although directory 'empty-dir' could not be created"]
 
 
@@ -195,8 +212,9 @@ def file_over_dir_without_delete(ctx):
         try:
             ctx.restore(snapshot, target)
             problems.append(f"restore exited 0 although file {name!r} is a directory in the target")
-        except RusticFailed:
-            pass
+        except RusticFailed as err:
+            pattern = rf"Failed to set (restore file length for|the length of the file) `[^`]*{name}`"
+            problems += failed_because(err, pattern, f"restore of {name!r}")
     return problems
 
 
@@ -304,12 +322,26 @@ SCENARIOS = [
 ]
 
 
+class UnknownScenario(Exception):
+    pass
+
+
+def select(only) -> list:
+    """The scenarios to run: all, or exactly the named ones (unknown names are an error)."""
+    if not only:
+        return list(SCENARIOS)
+    names = {s.__name__ for s in SCENARIOS}
+    unknown = sorted(set(only) - names)
+    if unknown:
+        raise UnknownScenario(f"unknown scenarios {unknown}; known: {sorted(names)}")
+    return [s for s in SCENARIOS if s.__name__ in only]
+
+
 def run_all(ctx: Context, only=None) -> dict:
+    selected = select(only)
     results = {}
     setup(ctx)
-    for scenario in SCENARIOS:
-        if only and scenario.__name__ not in only:
-            continue
+    for scenario in selected:
         try:
             results[scenario.__name__] = scenario(ctx)
         except (RusticFailed, OSError) as err:

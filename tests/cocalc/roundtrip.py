@@ -17,7 +17,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from rt.scenarios import EXPECTED_FAILURES, Context, run_all, unexplained
+from rt.scenarios import EXPECTED_FAILURES, Context, UnknownScenario, run_all, unexplained
 
 # Fixture case -> why CI can't run it.  Under ROUNDTRIP_STRICT=1 every other
 # skip fails the run.
@@ -28,7 +28,14 @@ def main() -> int:
     binary = str(Path(sys.argv[1]).resolve(strict=True))
     work = Path(sys.argv[2]).resolve(strict=True)
     ctx = Context(binary, work, as_root=os.geteuid() == 0)
-    results = run_all(ctx, only=set(sys.argv[3:]))
+    try:
+        results = run_all(ctx, only=set(sys.argv[3:]))
+    except UnknownScenario as err:
+        print(err, file=sys.stderr)
+        return 2
+    if not results:
+        print("no scenario ran", file=sys.stderr)
+        return 2
     fs = subprocess.run(["findmnt", "-n", "-o", "FSTYPE,OPTIONS", "-T", str(work)], capture_output=True, text=True)
     failed = sorted(n for n, problems in results.items() if unexplained(n, problems))
     expected = sorted(n for n, problems in results.items() if problems and n in EXPECTED_FAILURES and n not in failed)
