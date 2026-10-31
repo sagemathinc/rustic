@@ -18,18 +18,42 @@ fn rustic(temp_dir: &TempDir) -> Command {
 }
 
 /// A tree deeper than PATH_MAX: the source walker can't read below it, even as root.
+///
+/// No single path used to build it reaches PATH_MAX: the first half is made
+/// from the root, the second half by child processes started in the middle,
+/// so the test process keeps its working directory.
 #[cfg(target_os = "linux")]
 fn deep_source(root: &std::path::Path) -> TestResult<()> {
-    let mut dir = root.to_path_buf();
-    std::fs::create_dir(&dir)?;
-    std::env::set_current_dir(&dir)?;
-    for i in 0..20 {
-        let name = format!("{i:02}-{}", "d".repeat(247));
-        std::fs::create_dir(&name)?;
-        std::env::set_current_dir(&name)?;
-        dir.push(name);
+    let levels = |range: std::ops::Range<usize>| {
+        range
+            .map(|i| format!("{i:02}-{}", "d".repeat(247)))
+            .collect::<Vec<_>>()
+            .join("/")
+    };
+    let middle = root.join(levels(0..10));
+    std::fs::create_dir_all(&middle)?;
+    let rest = levels(10..20);
+    for (program, args) in [
+        ("mkdir", vec!["-p".to_string(), rest.clone()]),
+        (
+            "sh",
+            vec![
+                "-c".into(),
+                r#"echo deep > "$1""#.into(),
+                "sh".into(),
+                format!("{rest}/bottom"),
+            ],
+        ),
+    ] {
+        let status = std::process::Command::new(program)
+            .args(&args)
+            .current_dir(&middle)
+            .status()?;
+        assert!(
+            status.success(),
+            "building the deep tree failed: {program}: {status}"
+        );
     }
-    std::fs::write("bottom", "below PATH_MAX")?;
     Ok(())
 }
 
@@ -38,9 +62,7 @@ fn deep_source(root: &std::path::Path) -> TestResult<()> {
 fn snapshots_show_source_errors() -> TestResult<()> {
     let temp_dir = tempdir()?;
     let source = temp_dir.path().join("source");
-    let home = std::env::current_dir()?;
     deep_source(&source)?;
-    std::env::set_current_dir(&home)?;
     rustic(&temp_dir).arg("init").assert().success();
 
     rustic(&temp_dir)
