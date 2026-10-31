@@ -1,6 +1,7 @@
 //! `ls` subcommand
 
 use std::{
+    io::{BufWriter, Write},
     ops::AddAssign,
     path::{Path, PathBuf},
 };
@@ -18,7 +19,7 @@ use derive_more::Add;
 use rustic_core::{
     Excludes, LocalSource, LocalSourceFilterOptions, LocalSourceSaveOptions, LsOptions,
     ProgressType, ReadSource, ReadSourceEntry, RusticResult,
-    repofile::{Node, NodeType},
+    repofile::{Metadata, Node, NodeType},
 };
 
 mod constants {
@@ -47,16 +48,26 @@ pub(crate) struct LsCmd {
     pub snap: String,
 
     /// show summary
-    #[clap(long, short = 's', conflicts_with = "json")]
+    #[clap(long, short = 's', conflicts_with_all = ["json", "json_lines"])]
     pub summary: bool,
 
     /// show long listing
-    #[clap(long, short = 'l', conflicts_with = "json")]
+    #[clap(long, short = 'l', conflicts_with_all = ["json", "json_lines"])]
     pub long: bool,
 
     /// show listing in json
-    #[clap(long, conflicts_with_all = ["summary", "long"])]
+    #[clap(long, conflicts_with_all = ["summary", "long", "json_lines"])]
     pub json: bool,
+
+    /// show listing as JSON lines with the full metadata of every entry
+    ///
+    /// The first line describes the listing (format, version, snapshot and
+    /// tree id). Then each line is one entry: its path as a list of escaped
+    /// name components and its full node (type, metadata, extended
+    /// attributes, content and subtree ids). The last line is
+    /// `{"complete":true,"entries":N}`; output without it is incomplete.
+    #[clap(long)]
+    pub json_lines: bool,
 
     /// show uid/gid instead of user/group
     #[clap(long, long("numeric-uid-gid"))]
@@ -208,6 +219,16 @@ impl LsCmd {
             .excludes(self.excludes.clone())
             .recursive(!self.snap.contains(':') || self.recursive);
 
+        if self.json_lines {
+            let header = JsonLinesHeader {
+                format: JSON_LINES_FORMAT,
+                version: JSON_LINES_VERSION,
+                snapshot: Some(snap.id.to_hex().to_string()),
+                tree: Some(snap.tree.to_hex().to_string()),
+                path: path.to_string(),
+            };
+            return write_json_lines(&header, repo.ls(&node, &ls_opts)?);
+        }
         self.display(repo.ls(&node, &ls_opts)?)?;
         Ok(())
     }
@@ -229,6 +250,16 @@ impl LsCmd {
             let ReadSourceEntry { path, node, .. } = item?;
             Ok((path, node))
         });
+        if self.json_lines {
+            let header = JsonLinesHeader {
+                format: JSON_LINES_FORMAT,
+                version: JSON_LINES_VERSION,
+                snapshot: None,
+                tree: None,
+                path: path.to_string(),
+            };
+            return write_json_lines(&header, src);
+        }
         self.display(src)?;
         Ok(())
     }
@@ -272,6 +303,76 @@ impl LsCmd {
         }
         Ok(())
     }
+}
+
+const JSON_LINES_FORMAT: &str = "rustic-ls-json-lines";
+const JSON_LINES_VERSION: u32 = 1;
+
+/// First line of `ls --json-lines`
+#[derive(serde::Serialize)]
+struct JsonLinesHeader<'a> {
+    format: &'a str,
+    version: u32,
+    snapshot: Option<String>,
+    tree: Option<String>,
+    path: String,
+}
+
+/// One entry of `ls --json-lines`
+#[derive(serde::Serialize)]
+struct JsonLinesEntry<'a> {
+    /// the path, as name components escaped like node names
+    path: Vec<String>,
+    node: &'a Node,
+}
+
+/// Last line of `ls --json-lines`: its absence means the listing is incomplete
+#[derive(serde::Serialize)]
+struct JsonLinesEnd {
+    complete: bool,
+    entries: u64,
+}
+
+/// Escape each component of `path` the way node names are escaped, so that
+/// any name (including non-UTF-8 ones) round-trips unambiguously.
+fn escaped_components(path: &Path) -> Vec<String> {
+    path.components()
+        .map(|component| {
+            Node::new_node(component.as_os_str(), NodeType::Dir, Metadata::default()).name
+        })
+        .collect()
+}
+
+/// Write the listing as JSON lines (see `LsCmd::json_lines`)
+fn write_json_lines(
+    header: &JsonLinesHeader<'_>,
+    tree_streamer: impl Iterator<Item = RusticResult<(PathBuf, Node)>>,
+) -> Result<()> {
+    let stdout = std::io::stdout();
+    let mut out = BufWriter::new(stdout.lock());
+    serde_json::to_writer(&mut out, header)?;
+    out.write_all(b"\n")?;
+    let mut entries = 0u64;
+    for item in tree_streamer {
+        let (path, node) = item?;
+        let entry = JsonLinesEntry {
+            path: escaped_components(&path),
+            node: &node,
+        };
+        serde_json::to_writer(&mut out, &entry)?;
+        out.write_all(b"\n")?;
+        entries += 1;
+    }
+    serde_json::to_writer(
+        &mut out,
+        &JsonLinesEnd {
+            complete: true,
+            entries,
+        },
+    )?;
+    out.write_all(b"\n")?;
+    out.flush()?;
+    Ok(())
 }
 
 /// Print node in format similar to unix `ls`
