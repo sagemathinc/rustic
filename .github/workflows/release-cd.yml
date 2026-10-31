@@ -4,8 +4,10 @@ name: Release Linux Binaries
 # x86_64 and arm64, natively, with a sha256 file per archive.  The archive
 # names match what CoCalc's install.ts downloads:
 #   rustic-<tag>-linux-{x86_64,arm64}.tar.gz
-# A tag is only built if it points at a commit on the `cocalc/main` branch on which
-# "CoCalc CI" succeeded.  The GitHub release is created as a draft; it is
+# A tag is only built if it points at a commit on the `cocalc/main` branch on
+# which "CoCalc CI" succeeded for a push to `cocalc/main`.  The builds check out
+# that verified commit, not the (movable) tag, and the release is only created
+# if the tag still points at it.  The GitHub release is a draft; it is
 # published by hand after checking the assets.
 
 on:
@@ -37,6 +39,7 @@ jobs:
       actions: read
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+      sha: ${{ steps.check.outputs.sha }}
     steps:
       - id: tag
         run: echo "tag=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
@@ -44,7 +47,8 @@ jobs:
         with:
           fetch-depth: 0
           ref: refs/tags/${{ steps.tag.outputs.tag }}
-      - name: The tag is a CoCalc release of a commit on cocalc that passed CoCalc CI
+      - name: The tag is a CoCalc release of a commit on cocalc/main that passed CoCalc CI
+        id: check
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -55,8 +59,12 @@ jobs:
           sha="$(git rev-parse "refs/tags/$TAG^{commit}")"
           git fetch -q origin cocalc/main
           git merge-base --is-ancestor "$sha" origin/cocalc/main || { echo "$sha is not on the cocalc/main branch" >&2; exit 1; }
-          ok="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cocalc-ci.yml/runs?head_sha=$sha&status=success" --jq '.total_count')"
-          [ "$ok" -gt 0 ] || { echo "CoCalc CI has not succeeded on $sha" >&2; exit 1; }
+          # A successful run for a push to cocalc/main of exactly this commit
+          # (a pull_request run tests a merge ref, not this commit).
+          ok="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cocalc-ci.yml/runs?head_sha=$sha&event=push&branch=cocalc/main&status=success" \
+            --jq "[.workflow_runs[] | select(.head_sha == \"$sha\" and .event == \"push\" and .head_branch == \"cocalc/main\" and .conclusion == \"success\")] | length")"
+          [ "$ok" -gt 0 ] || { echo "CoCalc CI has not succeeded for a push of $sha to cocalc/main" >&2; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.asset_name }}
@@ -74,7 +82,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
-          ref: refs/tags/${{ needs.verify.outputs.tag }}
+          # the verified commit itself, never the tag (which could move)
+          ref: ${{ needs.verify.outputs.sha }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # v1
@@ -118,6 +127,22 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: The tag still points at the verified commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.tag }}
+          SHA: ${{ needs.verify.outputs.sha }}
+        run: |
+          set -euo pipefail
+          ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha')"
+          type="${ref%% *}"
+          object="${ref#* }"
+          if [ "$type" = "tag" ]; then
+            object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object" --jq '.object.sha')"
+          fi
+          [ "$object" = "$SHA" ] || { echo "tag $TAG now points at $object, not the verified $SHA" >&2; exit 1; }
+
       - name: Download all workflow artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
 
