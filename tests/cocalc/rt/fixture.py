@@ -244,7 +244,14 @@ def huge_directory(root: Path):
 @case()
 def directory_times(root: Path):
     """Set last, so creating the other entries can't touch them."""
-    dirs = sorted(p for p in root.rglob("*") if p.is_dir() and not p.is_symlink())
+    # lstat only: following the 1000-byte symlink target raises ENAMETOOLONG
+    # on Python 3.12
+    dirs = sorted(
+        Path(top) / name
+        for top, names, _ in os.walk(root)
+        for name in names
+        if stat.S_ISDIR(os.lstat(Path(top) / name).st_mode)
+    )
     for i, path in enumerate([*dirs, root]):
         if os.access(path, os.W_OK) or os.geteuid() == 0:
             ns = 1_400_000_000_000_000_000 + i * 1_000_000_007
