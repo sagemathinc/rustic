@@ -45,10 +45,22 @@ merged.
   - the unit and integration tests;
   - a backup, restore and compare round trip (`tests/cocalc/roundtrip.py`) on
     btrfs, btrfs with `compress=zstd`, and ext4 loopbacks, on x86_64 and arm64.
-    It covers contents, sparse files, modes, owners, times, symlinks, hardlink
-    groups, special files, xattrs and unusual names.
+    The fixture (`tests/cocalc/rt/fixture.py`) covers contents, sparse files,
+    modes, owners, times, symlinks, hardlink groups, special files, xattrs,
+    ACLs, file capabilities, unusual names and a large directory. The scenarios
+    (`tests/cocalc/rt/scenarios.py`) restore it dense, sparse (holes must stay
+    holes), as a subtree, over a changed copy with `--delete` and
+    `--verify-existing`, and from an incremental backup with a parent. A skipped
+    case fails CI unless `CI_ALLOWED_SKIPS` names it with a reason; known
+    failures are listed in `EXPECTED_FAILURES`, and one that passes fails CI
+    until its entry is removed.
 - **Sparse Recovery Qualification** (`sparse-qualification.yml`): sparse files
   and quotas on btrfs, with provenance for the tested binaries.
 - More suites will follow: change-detection adversaries, crash safety,
   corruption, fuzzing, scale, and mutation testing as the measure of test
   strength.
+
+## Known differences
+
+- A restore leaves the target directory's own mode, owner, times and xattrs
+  alone; only the entries inside it are restored.

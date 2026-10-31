@@ -7,7 +7,8 @@ name: CoCalc CI
 
 on:
   pull_request:
-    branches: ["cocalc/main"]
+    # cocalc/** too, so stacked pull requests get the loopback matrix
+    branches: ["cocalc/main", "cocalc/**"]
   push:
     branches: ["cocalc/main"]
   schedule:
@@ -79,4 +80,5 @@ jobs:
           esac
           sudo mount -o "$options" "$disk" "$mount"
           sudo mkdir "$mount/work"
-          sudo python3 tests/cocalc/roundtrip.py "$PWD/bin/rustic" "$mount/work"
+          python3 -B -m unittest discover -s tests/cocalc -p 'test_*.py'
+          sudo env ROUNDTRIP_STRICT=1 python3 -B tests/cocalc/roundtrip.py "$PWD/bin/rustic" "$mount/work"
