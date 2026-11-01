@@ -275,6 +275,9 @@ def s6a_freed_extent_reuse(ctx):
             first[mode] = (repo, ctx.backup(repo, snap1, reuse=reuse)[0])
     (sv / "A").unlink()
     btrfs.run("btrfs", "subvolume", "delete", snap1)  # drop the last reference to A's extent
+    # subvolume deletion is asynchronous: wait for the cleaner, then commit,
+    # so A's extent is really free before new files are allocated
+    btrfs.run("btrfs", "subvolume", "sync", ctx.work)
     btrfs.sync()
     btrfs.sync()
     found = None
