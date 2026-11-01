@@ -291,6 +291,13 @@ def main() -> int:
         print(f"{sc['name']:28s} {'in ' if sc['in_contract'] else 'OUT'} reused={res['reused']:3d} "
               f"control_reused={res['control_reused']:3d} divergent={len(res['divergent'])}", flush=True)
         shutil.rmtree(w, ignore_errors=True)
+    # negative controls: the option must reuse something, and the oracle must
+    # see the stale content the option keeps when used outside its contract
+    if "baseline" in report and report["baseline"]["reused"] == 0:
+        problems.append("baseline: the option reused nothing, so the checks above prove nothing")
+    for name in ("stale_nonempty_target", "wrong_parent"):
+        if name in report and not report[name]["divergent"]:
+            problems.append(f"{name}: expected a divergence outside the contract; the oracle saw none")
     print(json.dumps({"scenarios": report, "problems": problems}, indent=2))
     return 1 if problems else 0
 
