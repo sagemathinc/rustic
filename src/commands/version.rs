@@ -28,6 +28,7 @@ impl Runnable for VersionCmd {
                         "backup_exclusion_inventory": 1,
                         "backup_admission": 1,
                         "reuse_hardlinks": true,
+                        "reuse_extents": rustic_core::REUSE_EXTENTS_SUPPORTED,
                     },
                 })
             );
