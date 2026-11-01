@@ -1,0 +1,32 @@
+name: B3 probe (temporary, do not merge)
+
+# One-off empirical probe of btrfs extent generations for extent-identity
+# reuse.  Runs only on pull requests that touch the probe itself.
+on:
+  pull_request:
+    paths: ["tests/cocalc/probe/**", ".github/workflows/b3-probe.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: probe (${{ matrix.fs }})
+    strategy:
+      fail-fast: false
+      matrix:
+        fs: [btrfs, btrfs-zstd]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Probe on a ${{ matrix.fs }} loopback
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq btrfs-progs
+          disk="$(mktemp /tmp/probe.XXXXXX.img)"; mount="$(mktemp -d /tmp/probe.XXXXXX)"
+          truncate -s 2G "$disk"; sudo mkfs.btrfs -q "$disk"
+          case "${{ matrix.fs }}" in btrfs) o=loop ;; btrfs-zstd) o=loop,compress=zstd ;; esac
+          sudo mount -o "$o" "$disk" "$mount"
+          sudo bash tests/cocalc/probe/b3_probe.sh "$mount" "$PWD/tests/cocalc/probe/btrfs_items.py"
