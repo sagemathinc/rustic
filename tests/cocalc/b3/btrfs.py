@@ -21,8 +21,8 @@ FS_IOC_FIEMAP = 0xC020660B
 SEARCH_KEY = struct.Struct("=QQQQQQQIIIIQQQQ")  # btrfs_ioctl_search_key, 104 bytes
 SEARCH_HEADER = struct.Struct("=QQQII")         # transid, objectid, offset, type, len
 EXTENT_DATA_KEY = 108
-FILE_EXTENT_HEAD = struct.Struct("=QQBBHB")     # generation, ram_bytes, compression, encryption, other_encoding, type
-FILE_EXTENT_DISK = struct.Struct("=QQQQ")       # disk_bytenr, disk_num_bytes, offset, num_bytes
+FILE_EXTENT_HEAD = struct.Struct("<QQBBHB")     # on-disk item: little-endian; generation, ram_bytes, compression, encryption, other_encoding, type
+FILE_EXTENT_DISK = struct.Struct("<QQQQ")       # on-disk item: little-endian; disk_bytenr, disk_num_bytes, offset, num_bytes
 INLINE, REGULAR, PREALLOC = 0, 1, 2
 assert SEARCH_KEY.size == 104 and FILE_EXTENT_HEAD.size == 21
 

@@ -4,6 +4,9 @@ once the binary has --reuse-extents.
 
 Usage (as root, on a btrfs or ext4 loopback): b3_oracle.py RUSTIC WORK_DIR [SCENARIO...]
 
+B3_HOOKS_BINARY: a rustic built with the test-hooks feature, for s7d's
+negative control (pending without it).
+
 Exit 1 on any fixture or differential problem.  With B3_ORACLE_REQUIRE_FLAG=1
 a binary without --reuse-extents is a failure too (for after the core lands).
 """
@@ -16,7 +19,9 @@ from b3 import scenarios as sc
 
 
 def main() -> int:
-    ctx = sc.Context(str(Path(sys.argv[1]).resolve(strict=True)), Path(sys.argv[2]).resolve(strict=True))
+    hooks = os.environ.get("B3_HOOKS_BINARY")
+    ctx = sc.Context(str(Path(sys.argv[1]).resolve(strict=True)), Path(sys.argv[2]).resolve(strict=True),
+                     str(Path(hooks).resolve(strict=True)) if hooks else None)
     names = set(sys.argv[3:])
     chosen = (sc.BTRFS_SCENARIOS if ctx.btrfs else []) + [sc.s10_fallback]
     known = {s.__name__ for s in sc.BTRFS_SCENARIOS + [sc.s10_fallback]}
@@ -39,7 +44,8 @@ def main() -> int:
             "differential": (diff or "ok") if ctx.has_flag else "pending: binary lacks --reuse-extents",
         }
         failed |= bool(fixture) or bool(diff)
-    report["pending"] = sc.PENDING
+    report["pending"] = dict(sc.PENDING, **({} if ctx.hooks_binary else
+                             {"s7d_control": "needs B3_HOOKS_BINARY (a test-hooks build)"}))
     print(json.dumps({"filesystem": "btrfs" + (" (compressed)" if ctx.compressed else "") if ctx.btrfs else "other",
                       "has_flag": ctx.has_flag, "scenarios": report}, indent=2))
     if os.environ.get("B3_ORACLE_REQUIRE_FLAG") == "1" and not ctx.has_flag:
