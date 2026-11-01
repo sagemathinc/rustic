@@ -13,17 +13,21 @@ import tempfile
 import time
 
 STARTED = time.monotonic()
+# Seconds without progress before every thread's stack is dumped and the run
+# fails: a stall watchdog, re-armed at each step, not a total-runtime limit.
+WATCHDOG = int(os.environ.get("SPARSE_QUALIFICATION_WATCHDOG", "1200"))
 
 
 def step(message):
     """Progress on stderr, so a stalled run shows the step it stopped in."""
+    faulthandler.dump_traceback_later(WATCHDOG, exit=True)
     print(f"[{time.monotonic() - STARTED:7.1f}s] {message}", file=sys.stderr, flush=True)
 
 
 def main():
     # If anything stalls (including untimed kernel calls such as fallocate or
     # fsync), dump every thread's stack well before the CI job limit.
-    faulthandler.dump_traceback_later(int(os.environ.get("SPARSE_QUALIFICATION_WATCHDOG", "1200")), exit=True)
+    step("start")
     binary = str(Path(sys.argv[1]).resolve(strict=True))
     with open(binary, "rb") as file:
         binary_sha256 = hashlib.file_digest(file, "sha256").hexdigest()
@@ -155,8 +159,8 @@ def main():
         with open(sys.argv[3], "x", encoding="utf8") as file:
             json.dump(report, file, indent=2)
             file.write("\n")
-    faulthandler.cancel_dump_traceback_later()
     step("done")
+    faulthandler.cancel_dump_traceback_later()
     print(json.dumps(report))
 
 
