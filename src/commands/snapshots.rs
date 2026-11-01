@@ -173,8 +173,12 @@ pub fn snap_to_table(sn: &SnapshotFile, count: usize) -> [String; 9] {
     let (files, dirs, size) = sn.summary.as_ref().map_or_else(
         || ("?".to_string(), "?".to_string(), "?".to_string()),
         |s| {
+            let files = match s.error_count {
+                0 => s.total_files_processed.to_string(),
+                errors => format!("{} ({errors} errors)", s.total_files_processed),
+            };
             (
-                s.total_files_processed.to_string(),
+                files,
                 s.total_dirs_processed.to_string(),
                 bytes_size_to_string(s.total_bytes_processed),
             )
@@ -234,6 +238,15 @@ pub fn fill_table(snap: &SnapshotFile, mut add_entry: impl FnMut(&str, String)) 
             bytes_size_to_string(summary.total_bytes_processed)
         );
         add_entry("Source", source);
+        if summary.error_count > 0 {
+            add_entry(
+                "Errors",
+                format!(
+                    "{} errors while reading the source; this snapshot is incomplete",
+                    summary.error_count
+                ),
+            );
+        }
         add_entry("", String::new());
 
         let files = format!(
