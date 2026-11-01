@@ -4,10 +4,9 @@ Each scenario builds a btrfs fixture and first checks, through TREE_SEARCH,
 that the fixture really is the state it is about (fixture checks: they run
 today, without the feature).  Then, if the binary has `--reuse-extents`, it
 backs the fixture up without and with the option, restores both and requires
-the content to equal the source (the primary oracle); bytes read by rustic
-(rchar) are a secondary assertion, always as a difference between the
-plain and the reuse run of the same fixture, so binary and repository reads
-cancel out.
+the content to equal the source (the primary oracle).  The secondary,
+performance assertion uses the backup summary's `extent_reused_bytes`
+(omitted when 0), which the implementation counts deterministically.
 """
 import json
 import os
@@ -16,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 from . import btrfs
 
@@ -34,6 +34,10 @@ BARRIER_OFF_LOG = re.compile(r"extent barrier disabled \(test-hooks\)")
 def noop_log(reason: str):
     return re.compile(rf"reuse-extents: no-op \({re.escape(reason)}\)")
 MiB = 1024 * 1024
+
+
+PAUSE_ENV = "RUSTIC_TEST_PAUSE_AFTER_SCANS"
+PAUSE_DIR_ENV = "RUSTIC_TEST_PAUSE_DIR"
 
 
 class RusticFailed(Exception):
@@ -78,12 +82,50 @@ class Context:
         return repo
 
     def backup(self, repo, source, *, parent=None, reuse=False, env=None, binary=None):
-        """(snapshot id, stderr, bytes read) of `backup .` run in source."""
+        """(snapshot id, stderr, bytes reused by extent identity) of `backup .` in source."""
         args = ["backup", "--json", *(["--parent", parent] if parent else ["--force"])]
         if reuse:
             args.append(FLAG)
-        out, err, read = self.rustic(repo, *args, ".", cwd=source, env=env, binary=binary)
-        return json.loads(out)["id"], err, read
+        out, err, _ = self.rustic(repo, *args, ".", cwd=source, env=env, binary=binary)
+        snapshot = json.loads(out)
+        return snapshot["id"], err, (snapshot.get("summary") or {}).get("extent_reused_bytes", 0)
+
+    def paused_backup(self, repo, source, while_paused, *, after_scans=1, parent=None):
+        """Run `backup --reuse-extents` with the test-hooks binary, paused after
+        the n-th signature scan; call while_paused() during the pause.
+        Returns (exit code, stdout, stderr)."""
+        pause_dir = self.path(f"pause-{repo.name}")
+        shutil.rmtree(pause_dir, ignore_errors=True)
+        pause_dir.mkdir()
+        args = [self.hooks_binary, "--repository", str(repo), "--no-progress", "backup", "--json",
+                *(["--parent", parent] if parent else ["--force"]), FLAG, "."]
+        env = {**self.env, PAUSE_ENV: str(after_scans), PAUSE_DIR_ENV: str(pause_dir)}
+        proc = subprocess.Popen(args, cwd=source, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            for _ in range(600):
+                if (pause_dir / "paused").exists() or proc.poll() is not None:
+                    break
+                time.sleep(0.5)
+            if not (pause_dir / "paused").exists():
+                out, err = proc.communicate(timeout=60)
+                raise RusticFailed(f"backup never paused (exit {proc.returncode}): {err.decode(errors='replace')[-800:]}")
+            while_paused()
+        finally:
+            (pause_dir / "release").touch()
+        out, err = proc.communicate(timeout=1200)
+        return proc.returncode, out, err.decode(errors="replace")
+
+    def snapshot_count(self, repo) -> int:
+        """Snapshots in the repository, whatever the grouping of `snapshots --json`."""
+        out, _, _ = self.rustic(repo, "snapshots", "--json")
+
+        def count(node):
+            if isinstance(node, dict):
+                return 1 if "tree" in node and "time" in node else sum(count(v) for v in node.values())
+            if isinstance(node, list):
+                return sum(count(v) for v in node)
+            return 0
+        return count(json.loads(out or "[]"))
 
     def restored(self, repo, snapshot, name) -> dict:
         target = self.path(f"restore-{name}")
@@ -136,7 +178,7 @@ def frozen(ctx, subvol: Path, name: str) -> Path:
 def differential(ctx, name, runs, checks=None) -> list[str]:
     """Back up each source in runs (the later ones with the earlier as parent),
     without and with the option, restore every run and compare with the
-    source.  checks(reads) gets {(mode, run index): bytes read}."""
+    source.  checks(reused) gets {(mode, run index): extent_reused_bytes}."""
     if not ctx.has_flag:
         return []
     problems, reads = [], {}
@@ -145,10 +187,12 @@ def differential(ctx, name, runs, checks=None) -> list[str]:
         parent = None
         for i, source in enumerate(runs):
             want = manifest(source)
-            snap, _, read = ctx.backup(repo, source, parent=parent, reuse=reuse)
-            reads[(mode, i)] = read
+            snap, _, reused = ctx.backup(repo, source, parent=parent, reuse=reuse)
+            reads[(mode, i)] = reused
             problems += [f"{mode} run {i}: {p}" for p in compare(want, ctx.restored(repo, snap, f"{name}-{mode}-{i}"))]
             parent = snap
+    if not problems:
+        problems += [f"plain run {i} reused {b} bytes" for (m, i), b in reads.items() if m == "plain" and b]
     if checks and not problems:
         problems += checks(reads)
     return problems
@@ -166,9 +210,8 @@ def s1_many_reflinks(ctx):
                if btrfs.signature(snap / f"d{i % 4}" / f"copy{i}") != want]
 
     def reads(r):
-        # 21 paths of one 4 MiB content: reuse saves (almost) the 20 copies
-        saved = r[("plain", 0)] - r[("reuse", 0)]
-        return [] if saved >= 0.8 * 20 * 4 * MiB else [f"reuse saved only {saved} bytes: {r}"]
+        # 21 paths of one 4 MiB content: the 20 copies are reused
+        return [] if r[("reuse", 0)] == 20 * 4 * MiB else [f"extent_reused_bytes {r}, want {20 * 4 * MiB}"]
     return fixture, differential(ctx, "s1", [snap], reads)
 
 
@@ -201,7 +244,8 @@ def s3_modified_tail(ctx):
         fixture.append("a modified tail kept the signature")
     if btrfs.bytenrs(snap / "a")[0] != btrfs.bytenrs(snap / "b")[0]:
         fixture.append("a and b do not share the prefix extent")
-    return fixture, differential(ctx, "s3", [snap])
+    return fixture, differential(ctx, "s3", [snap],
+                                 lambda r: [] if r[("reuse", 0)] == 0 else [f"a modified tail was reused: {r}"])
 
 
 def s4_same_bytes_separately(ctx):
@@ -213,7 +257,8 @@ def s4_same_bytes_separately(ctx):
     fixture = []
     if set(btrfs.bytenrs(snap / "a")) & set(btrfs.bytenrs(snap / "b")):
         fixture.append("separately written copies share extents")
-    return fixture, differential(ctx, "s4", [snap])
+    return fixture, differential(ctx, "s4", [snap],
+                                 lambda r: [] if r[("reuse", 0)] == 0 else [f"separately written bytes were reused: {r}"])
 
 
 def s5_compressed_reflinks(ctx):
@@ -231,9 +276,8 @@ def s5_compressed_reflinks(ctx):
         fixture.append("no compressed extent on a compress mount")
 
     def reads(r):
-        saved = r[("plain", 0)] - r[("reuse", 0)]
         size = os.path.getsize(snap / "z")
-        return [] if saved >= 0.8 * size else [f"reuse saved only {saved} bytes: {r}"]
+        return [] if r[("reuse", 0)] == size else [f"extent_reused_bytes {r}, want {size}"]
     return fixture, differential(ctx, "s5", [snap], reads)
 
 
@@ -253,9 +297,8 @@ def s6_nocow(ctx):
     snap = frozen(ctx, sv, "s6-ro")
 
     def reads(r):
-        # NOCOW inodes are excluded: with reuse rustic reads (about) as much as without
-        saved = r[("plain", 0)] - r[("reuse", 0)]
-        return [] if saved < 0.5 * MiB else [f"NOCOW reflinks were reused ({saved} bytes saved): {r}"]
+        # NOCOW inodes are excluded
+        return [] if r[("reuse", 0)] == 0 else [f"NOCOW reflinks were reused: {r}"]
     return fixture, differential(ctx, "s6", [snap], reads)
 
 
@@ -374,6 +417,89 @@ def s7d_barrier(ctx):
     return fixture, problems
 
 
+def _store_tree(ctx, name, files=24):
+    """A subvolume with a store of noise files and a worktree of reflinks."""
+    sv = fresh_subvolume(ctx, name)
+    for i in range(files):
+        write(sv / "store" / f"pkg{i:02d}", os.urandom(256 * 1024))
+    btrfs.sync()
+    for i in range(files):
+        reflink(sv / "store" / f"pkg{i:02d}", sv / "wt" / f"pkg{i:02d}")
+    return sv
+
+
+def s7a_ro_flip_mid_run(ctx):
+    """Clearing the source's read-only flag during the run fails it, and no
+    snapshot is saved (the end check)."""
+    if not ctx.has_flag:
+        return [], []
+    if not ctx.hooks_binary:
+        return [], None  # pending without a test-hooks binary
+    sv = _store_tree(ctx, "s7a")
+    snap = frozen(ctx, sv, "s7a-ro")
+    repo = ctx.repo("s7a")
+
+    def flip():
+        btrfs.set_readonly(snap, False)
+        write(snap / "written-while-writable", b"advances the generation")
+        btrfs.sync()
+        btrfs.set_readonly(snap, True)
+    rc, _, err = ctx.paused_backup(repo, snap, flip)
+    problems = []
+    if rc == 0:
+        problems.append("the run succeeded although the read-only flag was cleared mid-run")
+    if ctx.snapshot_count(repo):
+        problems.append("a snapshot was saved")
+    return [], problems
+
+
+def s7b_balance_mid_run(ctx):
+    """A data balance during the run relocates extents; content stays correct."""
+    if not ctx.has_flag:
+        return [], []
+    if not ctx.hooks_binary:
+        return [], None
+    sv = _store_tree(ctx, "s7b")
+    snap = frozen(ctx, sv, "s7b-ro")
+    want = manifest(snap)
+    before = btrfs.bytenrs(snap / "store" / "pkg00")
+    repo = ctx.repo("s7b")
+    rc, out, err = ctx.paused_backup(repo, snap, lambda: btrfs.run("btrfs", "balance", "start", "--full-balance", ctx.work))
+    fixture = [] if btrfs.bytenrs(snap / "store" / "pkg00") != before else ["the balance did not relocate the data"]
+    if rc:
+        return fixture, [f"the run failed during a balance: {err[-800:]}"]
+    snapshot = json.loads(out)["id"]
+    return fixture, compare(want, ctx.restored(repo, snapshot, "s7b"))
+
+
+def s8_repack_between_runs(ctx):
+    """A legitimate prune that repacks everything between two runs: the parent's
+    blobs move to new packs, and seeding from the parent must still give the
+    right content (a prune never deletes blobs a kept snapshot references)."""
+    sv = _store_tree(ctx, "s8")
+    snap1 = frozen(ctx, sv, "s8-ro1")
+    for i in range(24):
+        reflink(sv / "store" / f"pkg{i:02d}", sv / "wt2" / f"pkg{i:02d}")
+    snap2 = frozen(ctx, sv, "s8-ro2")
+    other = ctx.path("s8-other")
+    write(other / "unrelated", os.urandom(MiB))
+    if not ctx.has_flag:
+        return [], []
+    problems = []
+    for mode, reuse in (("plain", False), ("reuse", True)):
+        repo = ctx.repo(f"s8-{mode}")
+        first = ctx.backup(repo, snap1, reuse=reuse)[0]
+        unrelated = ctx.backup(repo, other)[0]
+        ctx.rustic(repo, "forget", unrelated)
+        ctx.rustic(repo, "prune", "--repack-all", "--instant-delete", "--max-unused", "0")
+        second, _, reused = ctx.backup(repo, snap2, parent=first, reuse=reuse)
+        problems += [f"{mode}: {p}" for p in compare(manifest(snap2), ctx.restored(repo, second, f"s8-{mode}"))]
+        if reuse and reused < 24 * 256 * 1024:
+            problems.append(f"after the repack the new worktree was not reused ({reused} bytes)")
+    ctx.rustic(ctx.repo("s8-reuse"), "check", "--read-data")
+    return [], problems
+
+
 def s9_new_worktree(ctx):
     sv = fresh_subvolume(ctx, "s9")
     for i in range(16):
@@ -391,9 +517,8 @@ def s9_new_worktree(ctx):
     wt = 16 * 256 * 1024
 
     def reads(r):
-        # the second backup reads wt2 without reuse, and (almost) none of it with reuse
-        saved = r[("plain", 1)] - r[("reuse", 1)]
-        return [] if saved >= 0.8 * wt else [f"reuse saved only {saved} bytes of the new worktree: {r}"]
+        # the second backup reuses the whole new worktree, seeded by the vouched store
+        return [] if r[("reuse", 1)] >= wt else [f"extent_reused_bytes {r}, want at least {wt}"]
     return fixture, differential(ctx, "s9", [snap1, snap2], reads)
 
 
@@ -413,8 +538,6 @@ def s10_fallback(ctx):
 
 BTRFS_SCENARIOS = [s1_many_reflinks, s2_inplace_edit, s3_modified_tail, s4_same_bytes_separately,
                    s5_compressed_reflinks, s6_nocow, s6a_freed_extent_reuse, s7_writable_source,
-                   s7d_barrier, s9_new_worktree]
-# need hooks in the implementation (mid-run RO flip, balance during the run, prune between runs)
-PENDING = {"s7a_ro_flip_mid_run": "needs RUSTIC_TEST_PAUSE_AFTER_SCANS (test-hooks)",
-           "s7b_balance_during_backup": "needs RUSTIC_TEST_PAUSE_AFTER_SCANS (test-hooks)",
-           "s8_prune_between_runs": "with the implementation"}
+                   s7d_barrier, s7a_ro_flip_mid_run, s7b_balance_mid_run, s8_repack_between_runs,
+                   s9_new_worktree]
+PENDING: dict[str, str] = {}

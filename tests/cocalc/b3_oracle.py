@@ -39,11 +39,16 @@ def main() -> int:
         if fixture is None:
             report[scenario.__name__] = "not applicable on this filesystem"
             continue
-        report[scenario.__name__] = {
-            "fixture": fixture or "ok",
-            "differential": (diff or "ok") if ctx.has_flag else "pending: binary lacks --reuse-extents",
-        }
+        if diff is None:
+            diff_report = "pending: needs B3_HOOKS_BINARY (a test-hooks build)"
+        elif not ctx.has_flag:
+            diff_report = "pending: binary lacks --reuse-extents"
+        else:
+            diff_report = diff or "ok"
+        report[scenario.__name__] = {"fixture": fixture or "ok", "differential": diff_report}
         failed |= bool(fixture) or bool(diff)
+        if diff is None and ctx.has_flag and os.environ.get("B3_ORACLE_REQUIRE_FLAG") == "1":
+            failed = True  # with the flag required, every differential must actually run
     report["pending"] = dict(sc.PENDING, **({} if ctx.hooks_binary else
                              {"s7d_control": "needs B3_HOOKS_BINARY (a test-hooks build)"}))
     print(json.dumps({"filesystem": "btrfs" + (" (compressed)" if ctx.compressed else "") if ctx.btrfs else "other",
