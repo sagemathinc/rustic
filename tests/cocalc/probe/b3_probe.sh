@@ -52,3 +52,15 @@ echo "  dirty (no sync yet):"; show c; fm nosync c
 fm sync c
 echo "  after FIEMAP_FLAG_SYNC:"; show c
 sync; echo "  after sync:"; show c d
+
+echo "== 4. compressible data: clone and freed-extent reuse (compressed extents on compress=zstd)"
+yes "compressible line of text for the probe" | head -c 1048576 > z; sync; sleep 6; sync
+cp --reflink=always z z2; sync
+show z z2
+oldz=$(show z | sed -n 's/.*disk_bytenr=\([0-9]*\).*/\1/p' | head -1)
+rm z z2; sync; sleep 2; sync; sync
+for i in $(seq 1 300); do
+  yes "other compressible text $i" | head -c 1048576 > "nz$i"; sync
+  b=$(show "nz$i" | sed -n 's/.*disk_bytenr=\([0-9]*\).*/\1/p' | head -1)
+  if [ "$b" = "$oldz" ]; then echo "  reused by nz$i:"; show "nz$i"; break; fi
+done
