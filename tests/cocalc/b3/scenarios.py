@@ -8,6 +8,7 @@ the content to equal the source (the primary oracle).  The secondary,
 performance assertion uses the backup summary's `extent_reused_bytes`
 (omitted when 0), which the implementation counts deterministically.
 """
+import atexit
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 from . import btrfs
@@ -38,6 +40,8 @@ MiB = 1024 * 1024
 
 PAUSE_ENV = "RUSTIC_TEST_PAUSE_AFTER_SCANS"
 PAUSE_DIR_ENV = "RUSTIC_TEST_PAUSE_DIR"
+# The end check: the source's read-only flag or generation changed during the run
+FAILED_CLOSED = re.compile(r"backup source changed during --reuse-extents.*no snapshot was saved", re.S)
 
 
 class RusticFailed(Exception):
@@ -57,6 +61,7 @@ class Context:
         self.binary = binary
         self.hooks_binary = hooks_binary
         self.work = work
+        self.off_fs = None
         self.env = {**os.environ, "RUSTIC_PASSWORD": "fixture-only", "LC_ALL": "C.UTF-8"}
         help_text = subprocess.run([binary, "backup", "--help"], capture_output=True, text=True).stdout
         self.has_flag = FLAG in help_text
@@ -75,8 +80,16 @@ class Context:
             raise RusticFailed(f"rustic {' '.join(map(str, args))}: {result.stderr.decode(errors='replace')[-1500:]}")
         return result.stdout, result.stderr.decode(errors="replace"), read
 
-    def repo(self, name: str) -> Path:
-        repo = self.path(f"repo-{name}")
+    def repo(self, name: str, off_fs: bool = False) -> Path:
+        """A repository on the filesystem under test, or (off_fs) elsewhere,
+        so that writing its packs does not move that filesystem's allocator."""
+        if off_fs:
+            if self.off_fs is None:
+                self.off_fs = Path(tempfile.mkdtemp(prefix="b3-repos-"))
+                atexit.register(shutil.rmtree, self.off_fs, True)
+            repo = self.off_fs / f"repo-{name}"
+        else:
+            repo = self.path(f"repo-{name}")
         if not repo.exists():
             self.rustic(repo, "init")
         return repo
@@ -314,7 +327,9 @@ def s6a_freed_extent_reuse(ctx):
     first = {}
     if ctx.has_flag:
         for mode, reuse in (("plain", False), ("reuse", True)):
-            repo = ctx.repo(f"s6a-{mode}")
+            # off the filesystem under test: packs written right after A would
+            # leave A's freed extent a hole the allocator need not revisit
+            repo = ctx.repo(f"s6a-{mode}", off_fs=True)
             first[mode] = (repo, ctx.backup(repo, snap1, reuse=reuse)[0])
     (sv / "A").unlink()
     btrfs.run("btrfs", "subvolume", "delete", snap1)  # drop the last reference to A's extent
@@ -448,13 +463,18 @@ def s7a_ro_flip_mid_run(ctx):
     problems = []
     if rc == 0:
         problems.append("the run succeeded although the read-only flag was cleared mid-run")
+    elif not FAILED_CLOSED.search(err):
+        problems.append(f"the run failed, but not by the end check: {err[-800:]}")
     if ctx.snapshot_count(repo):
         problems.append("a snapshot was saved")
     return [], problems
 
 
 def s7b_balance_mid_run(ctx):
-    """A data balance during the run relocates extents; content stays correct."""
+    """A data balance during the run relocates extents.  Accepted outcomes:
+    the run completes with correct content, or it fails closed (the end check
+    sees the source changed, and no snapshot is saved) and a retry without a
+    balance then completes with correct content."""
     if not ctx.has_flag:
         return [], []
     if not ctx.hooks_binary:
@@ -467,8 +487,13 @@ def s7b_balance_mid_run(ctx):
     rc, out, err = ctx.paused_backup(repo, snap, lambda: btrfs.run("btrfs", "balance", "start", "--full-balance", ctx.work))
     fixture = [] if btrfs.bytenrs(snap / "store" / "pkg00") != before else ["the balance did not relocate the data"]
     if rc:
-        return fixture, [f"the run failed during a balance: {err[-800:]}"]
-    snapshot = json.loads(out)["id"]
+        if not FAILED_CLOSED.search(err):
+            return fixture, [f"the run failed during a balance, not by the end check: {err[-800:]}"]
+        if ctx.snapshot_count(repo):
+            return fixture, ["the run failed closed during a balance but saved a snapshot"]
+        snapshot = ctx.backup(repo, snap, reuse=True)[0]  # the retry
+    else:
+        snapshot = json.loads(out)["id"]
     return fixture, compare(want, ctx.restored(repo, snapshot, "s7b"))
 
 
