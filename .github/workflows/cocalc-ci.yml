@@ -42,6 +42,11 @@ jobs:
       # a test-hooks build, only for the extent-reuse oracle's negative control
       - run: cargo build --locked --release --jobs 4 --features test-hooks --target-dir target-hooks
       - run: mkdir -p out && cp target/release/rustic out/rustic && cp target-hooks/release/rustic out/rustic-test-hooks
+      # the release binary ignores every test-hooks switch; the control shows
+      # that the check detects a binary that honors them
+      - run: bash tests/cocalc/release_hooks_check.sh out/rustic
+      - run: bash tests/cocalc/release_hooks_check.sh out/rustic-test-hooks --expect-hooks
+      - run: "! grep -aq -e rustic-test-fake-extents -e RUSTIC_TEST_ out/rustic"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rustic-${{ matrix.runner }}

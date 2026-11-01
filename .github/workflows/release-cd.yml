@@ -93,12 +93,27 @@ jobs:
       - name: Build release binary
         env:
           TAG: ${{ needs.verify.outputs.tag }}
+          # An explicit list (the crate's defaults), never `test-hooks`.
+          FEATURES: jq,prometheus,opentelemetry,tui,webdav
         run: |
           set -euo pipefail
+          case ",$FEATURES," in *,test-hooks,*) echo "test-hooks in a release build" >&2; exit 1 ;; esac
+          # No dependency path may enable rustic_core's test-hooks either.
+          if cargo tree --locked -e features --no-default-features --features "$FEATURES" -i rustic_core | grep -q 'test-hooks'; then
+            echo "test-hooks is enabled in the release dependency graph" >&2
+            exit 1
+          fi
           # `rustic --version` then prints e.g. "rustic 0.11.4-cocalc.1",
           # the version install.ts compares with.
-          PROJECT_VERSION="${TAG#v}" cargo build --locked --release
+          PROJECT_VERSION="${TAG#v}" cargo build --locked --release --no-default-features --features "$FEATURES"
           test "$(target/release/rustic --version)" = "rustic ${TAG#v}"
+          # The test-hooks code is not even in the binary ...
+          if grep -aq -e 'rustic-test-fake-extents' -e 'RUSTIC_TEST_' target/release/rustic; then
+            echo "test-hooks strings found in the release binary" >&2
+            exit 1
+          fi
+          # ... and the binary ignores every switch on a hostile tree.
+          bash tests/cocalc/release_hooks_check.sh target/release/rustic
 
       - name: Package release artifact
         env:
