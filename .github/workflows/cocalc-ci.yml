@@ -100,3 +100,6 @@ jobs:
           # corruption injection: damaged packs, index and snapshot files, cold and warm cache (seed = run id)
           sudo mkdir "$mount/corrupt"
           sudo env CORRUPT_SEED="${{ github.run_id }}" python3 -B tests/cocalc/corrupt.py "$PWD/bin/rustic" "$mount/corrupt"
+          # backup --restored-before: restored trees inside and outside the option's contract
+          sudo mkdir "$mount/b6"
+          sudo python3 -B tests/cocalc/b6_adversary.py "$PWD/bin/rustic" "$mount/b6"
