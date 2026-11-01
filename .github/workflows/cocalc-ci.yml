@@ -94,3 +94,6 @@ jobs:
           sudo mkdir "$mount/b3"
           sudo env B3_HOOKS_BINARY="$PWD/bin/rustic-test-hooks" B3_ORACLE_REQUIRE_FLAG=1 \
             python3 -B tests/cocalc/b3_oracle.py "$PWD/bin/rustic" "$mount/b3"
+          # crash safety: SIGKILLed backups/prunes, a backup during a prune (seed = run id)
+          sudo mkdir "$mount/crash"
+          sudo env CRASH_ITERATIONS=4 CRASH_SEED="${{ github.run_id }}" python3 -B tests/cocalc/crash.py "$PWD/bin/rustic" "$mount/crash"

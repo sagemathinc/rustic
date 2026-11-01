@@ -60,6 +60,23 @@ merged.
   corruption, fuzzing, scale, and mutation testing as the measure of test
   strength.
 
+## Prune and backup on the same repository
+
+Never run `prune` while a backup into the same repository can run. Serialize
+them per repository, and never use `prune --instant-delete` while any backup
+could run.
+
+- The exclusion must be keyed by the repository, not by the client or host that
+  writes into it. When several clients share one repository, every one of them
+  must take the same lock before it starts a backup or a prune.
+- rustic takes no lock for this. A backup that deduplicates against blobs a
+  concurrent prune drops from the index saves a snapshot that references missing
+  blobs: `check --read-data` fails, and the snapshot may not restore.
+- With the default two-phase prune, the next prune recovers the still-existing
+  packs, and the repository is consistent again.
+- With `--instant-delete`, the loss is permanent.
+- `tests/cocalc/crash.py` asserts this contract.
+
 ## Known differences
 
 - A restore leaves the target directory's own mode, owner, times and xattrs
