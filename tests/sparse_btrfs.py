@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Opt-in qualification on a marked, disposable Btrfs mount. Requires root."""
 import errno
+import faulthandler
 import hashlib
 import json
 import os
@@ -9,9 +10,24 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
+
+STARTED = time.monotonic()
+# Seconds without progress before every thread's stack is dumped and the run
+# fails: a stall watchdog, re-armed at each step, not a total-runtime limit.
+WATCHDOG = int(os.environ.get("SPARSE_QUALIFICATION_WATCHDOG", "1200"))
+
+
+def step(message):
+    """Progress on stderr, so a stalled run shows the step it stopped in."""
+    faulthandler.dump_traceback_later(WATCHDOG, exit=True)
+    print(f"[{time.monotonic() - STARTED:7.1f}s] {message}", file=sys.stderr, flush=True)
 
 
 def main():
+    # If anything stalls (including untimed kernel calls such as fallocate or
+    # fsync), dump every thread's stack well before the CI job limit.
+    step("start")
     binary = str(Path(sys.argv[1]).resolve(strict=True))
     with open(binary, "rb") as file:
         binary_sha256 = hashlib.file_digest(file, "sha256").hexdigest()
@@ -31,6 +47,7 @@ def main():
     }
 
     def run(args, cwd=root):
+        step(" ".join([Path(args[0]).name] + [str(a) for a in args[1:] if not str(a).startswith("/")][:6]))
         result = subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True, timeout=180)
         if result.returncode:
             raise RuntimeError(f"{args}: {result.returncode}\n{result.stderr}")
@@ -51,6 +68,7 @@ def main():
         run(["btrfs", "quota", "enable", str(mount)])
         source = subvolume("source")
         run(["btrfs", "qgroup", "limit", "4G", str(source)])
+        step("writing the 10 GiB sparse fixture")
         with open(source / "huge", "xb") as output:
             output.truncate(10 * 1024**3)
             for offset in [0, 5 * 1024**3, 10 * 1024**3 - 4096]:
@@ -97,6 +115,7 @@ def main():
         stage = subvolume("restore")
         run(["btrfs", "qgroup", "limit", "4G", str(stage)])
         # Demonstrate enforcement, not just successful execution of qgroup limit.
+        step("quota probe: posix_fallocate 5 GiB under a 4 GiB qgroup limit")
         probe = stage / "quota-probe"
         try:
             with open(probe, "xb") as output:
@@ -110,6 +129,7 @@ def main():
             probe.unlink(missing_ok=True)
         run(["btrfs", "filesystem", "sync", str(mount)])
         run(common + ["restore", "--strict", "--sparse", "by-content-required", parent, str(stage)])
+        step("verifying restored files")
         allocations = {}
         for name in ["huge", "mixed", "linked", "ordinary"]:
             original, restored = source / name, stage / name
@@ -128,6 +148,7 @@ def main():
                   "quota_bytes": 4 * 1024**3, "dense_probe_errno": "EDQUOT",
                   "immutable_snapshots": True, "byte_verification": "union-of-extents"}
     finally:
+        step("cleanup")
         for subvol in reversed(subvolumes):
             subprocess.run(["btrfs", "subvolume", "delete", str(subvol)], check=True, timeout=60)
         shutil.rmtree(root)
@@ -138,6 +159,8 @@ def main():
         with open(sys.argv[3], "x", encoding="utf8") as file:
             json.dump(report, file, indent=2)
             file.write("\n")
+    step("done")
+    faulthandler.cancel_dump_traceback_later()
     print(json.dumps(report))
 
 
