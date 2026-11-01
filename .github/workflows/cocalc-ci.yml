@@ -97,3 +97,6 @@ jobs:
           # crash safety: SIGKILLed backups/prunes, a backup during a prune (seed = run id)
           sudo mkdir "$mount/crash"
           sudo env CRASH_ITERATIONS=4 CRASH_SEED="${{ github.run_id }}" python3 -B tests/cocalc/crash.py "$PWD/bin/rustic" "$mount/crash"
+          # corruption injection: damaged packs, index and snapshot files, cold and warm cache (seed = run id)
+          sudo mkdir "$mount/corrupt"
+          sudo env CORRUPT_SEED="${{ github.run_id }}" python3 -B tests/cocalc/corrupt.py "$PWD/bin/rustic" "$mount/corrupt"
