@@ -28,7 +28,7 @@ from rt.manifest import compare, manifest  # noqa: E402
 
 
 class CachedRepo(Repo):
-    """A Repo with its own cache directory (rustic reads no env var for it)."""
+    """A Repo with its own cache directory, passed explicitly with --cache-dir."""
     def __init__(self, binary: str, path: Path, cache: Path):
         super().__init__(binary, path)
         self.cache = cache
