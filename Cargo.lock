@@ -5518,7 +5518,7 @@ dependencies = [
 [[package]]
 name = "rustic_backend"
 version = "0.7.0"
-source = "git+https://github.com/sagemathinc/rustic_core.git?rev=3b3fcdbc63a39b59f3941ebe53823f3305e30fdf#3b3fcdbc63a39b59f3941ebe53823f3305e30fdf"
+source = "git+https://github.com/sagemathinc/rustic_core.git?rev=c5187386d1e9f51143b562ad7f7a9ed2945bedce#c5187386d1e9f51143b562ad7f7a9ed2945bedce"
 dependencies = [
  "aho-corasick",
  "backon",
@@ -5557,7 +5557,7 @@ checksum = "fbcebf2228827bc4b61cb54dfd84cf43aacf06ca2dfe4c014b136a0e32b876e2"
 [[package]]
 name = "rustic_core"
 version = "0.13.0"
-source = "git+https://github.com/sagemathinc/rustic_core.git?rev=3b3fcdbc63a39b59f3941ebe53823f3305e30fdf#3b3fcdbc63a39b59f3941ebe53823f3305e30fdf"
+source = "git+https://github.com/sagemathinc/rustic_core.git?rev=c5187386d1e9f51143b562ad7f7a9ed2945bedce#c5187386d1e9f51143b562ad7f7a9ed2945bedce"
 dependencies = [
  "aes256ctr_poly1305aes",
  "backon",
@@ -5615,7 +5615,7 @@ dependencies = [
 [[package]]
 name = "rustic_extents"
 version = "0.1.0"
-source = "git+https://github.com/sagemathinc/rustic_core.git?rev=3b3fcdbc63a39b59f3941ebe53823f3305e30fdf#3b3fcdbc63a39b59f3941ebe53823f3305e30fdf"
+source = "git+https://github.com/sagemathinc/rustic_core.git?rev=c5187386d1e9f51143b562ad7f7a9ed2945bedce#c5187386d1e9f51143b562ad7f7a9ed2945bedce"
 dependencies = [
  "libc",
 ]
@@ -5623,7 +5623,7 @@ dependencies = [
 [[package]]
 name = "rustic_testing"
 version = "0.5.0"
-source = "git+https://github.com/sagemathinc/rustic_core.git?rev=3b3fcdbc63a39b59f3941ebe53823f3305e30fdf#3b3fcdbc63a39b59f3941ebe53823f3305e30fdf"
+source = "git+https://github.com/sagemathinc/rustic_core.git?rev=c5187386d1e9f51143b562ad7f7a9ed2945bedce#c5187386d1e9f51143b562ad7f7a9ed2945bedce"
 dependencies = [
  "aho-corasick",
  "bytes",

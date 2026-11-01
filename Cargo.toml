@@ -64,8 +64,8 @@ rustdoc-args = ["--document-private-items", "--generate-link-to-definition"]
 
 [dependencies]
 abscissa_core = { version = "0.9.0", default-features = false, features = ["application"] }
-rustic_backend = { git = "https://github.com/sagemathinc/rustic_core.git", rev = "3b3fcdbc63a39b59f3941ebe53823f3305e30fdf", features = ["cli"] }
-rustic_core = { git = "https://github.com/sagemathinc/rustic_core.git", rev = "3b3fcdbc63a39b59f3941ebe53823f3305e30fdf", features = ["cli"] }
+rustic_backend = { git = "https://github.com/sagemathinc/rustic_core.git", rev = "c5187386d1e9f51143b562ad7f7a9ed2945bedce", features = ["cli"] }
+rustic_core = { git = "https://github.com/sagemathinc/rustic_core.git", rev = "c5187386d1e9f51143b562ad7f7a9ed2945bedce", features = ["cli"] }
 
 # allocators
 jemallocator-global = { version = "0.3.2", optional = true }
@@ -151,7 +151,7 @@ pretty_assertions = "1.4"
 quickcheck = "1"
 quickcheck_macros = "1"
 rstest = "0.26"
-rustic_testing = { git = "https://github.com/sagemathinc/rustic_core.git", rev = "3b3fcdbc63a39b59f3941ebe53823f3305e30fdf" }
+rustic_testing = { git = "https://github.com/sagemathinc/rustic_core.git", rev = "c5187386d1e9f51143b562ad7f7a9ed2945bedce" }
 tar = "0.4.44"
 tempfile = "3.25"
 
