@@ -39,10 +39,13 @@ jobs:
       - uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2
       - run: cargo test --locked --tests --jobs 4
       - run: cargo build --locked --release --jobs 4
+      # a test-hooks build, only for the extent-reuse oracle's negative control
+      - run: cargo build --locked --release --jobs 4 --features test-hooks --target-dir target-hooks
+      - run: mkdir -p out && cp target/release/rustic out/rustic && cp target-hooks/release/rustic out/rustic-test-hooks
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rustic-${{ matrix.runner }}
-          path: target/release/rustic
+          path: out/
           if-no-files-found: error
           retention-days: 7
 
@@ -66,7 +69,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x bin/rustic
+          chmod +x bin/rustic bin/rustic-test-hooks
           sudo apt-get update -qq
           sudo apt-get install -y -qq btrfs-progs
           disk="$(mktemp /tmp/cocalc-roundtrip.XXXXXX.img)"
@@ -84,4 +87,5 @@ jobs:
           sudo env ROUNDTRIP_STRICT=1 python3 -B tests/cocalc/roundtrip.py "$PWD/bin/rustic" "$mount/work"
           # extent-reuse oracle: fixture checks now, the differential once --reuse-extents exists
           sudo mkdir "$mount/b3"
-          sudo python3 -B tests/cocalc/b3_oracle.py "$PWD/bin/rustic" "$mount/b3"
+          sudo env B3_HOOKS_BINARY="$PWD/bin/rustic-test-hooks" B3_ORACLE_REQUIRE_FLAG=1 \
+            python3 -B tests/cocalc/b3_oracle.py "$PWD/bin/rustic" "$mount/b3"

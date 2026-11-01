@@ -100,6 +100,15 @@ pub struct BackupCmd {
     #[merge(strategy=conflate::bool::overwrite_false)]
     reuse_hardlinks: bool,
 
+    /// Read a file whose btrfs data extents are exactly those of a file already
+    /// archived in this run (or of an unchanged file vouched for by the parent
+    /// snapshot) only once: the others reuse its content. Needs a read-only
+    /// btrfs subvolume as the source and the privilege to search its tree;
+    /// otherwise this logs why it does nothing and every file is read.
+    #[clap(long)]
+    #[merge(strategy=conflate::bool::overwrite_false)]
+    reuse_extents: bool,
+
     /// Work admission (limits reject, never silently exclude files).
     #[clap(flatten, next_help_heading = "Backup work admission")]
     #[serde(flatten)]
@@ -472,6 +481,7 @@ impl BackupCmd {
             .no_scan(self.no_scan)
             .strict(self.strict)
             .reuse_hardlinks(self.reuse_hardlinks)
+            .reuse_extents(self.reuse_extents)
             .admission(self.admission)
             .dry_run(config.global.dry_run);
 
