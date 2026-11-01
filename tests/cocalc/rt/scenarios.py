@@ -75,6 +75,20 @@ def full_dense(ctx):
     return compare(ctx.want, ctx.restore(ctx.snapshot, ctx.fresh("dense")))
 
 
+def reuse_hardlinks(ctx):
+    """--reuse-hardlinks (one read per hard-linked inode) restores exactly as without it.
+
+    Once without a parent (--force: every inode is read, links reuse in-run) and
+    once with the first snapshot as parent (unchanged inodes are seeded from it).
+    """
+    problems = []
+    for label, args in (("fresh", ["--force"]), ("parent", ["--parent", ctx.snapshot])):
+        snapshot = ctx.backup(ctx.source, "--reuse-hardlinks", *args)
+        got = ctx.restore(snapshot, ctx.fresh(f"reuse-{label}"))
+        problems += [f"{label}: {p}" for p in compare(ctx.want, got)]
+    return problems
+
+
 def full_sparse(ctx):
     """A sparse restore must leave every hole of the source unallocated."""
     got = ctx.restore(ctx.snapshot, ctx.fresh("sparse"), *SPARSE)
@@ -297,6 +311,7 @@ def unexplained(name: str, problems: list[str]) -> list[str]:
 # incremental changes the source, so it runs last
 SCENARIOS = [
     full_dense,
+    reuse_hardlinks,
     full_sparse,
     subtree,
     over_existing,
@@ -334,6 +349,6 @@ def run_all(ctx: Context, only=None) -> dict:
             results[scenario.__name__] = scenario(ctx)
         except (RusticFailed, OSError) as err:
             results[scenario.__name__] = [f"error: {err}"]
-    for name in ("dense", "sparse", "subtree", "existing", "mismatch", "incremental", "first-again"):
+    for name in ("dense", "reuse-fresh", "reuse-parent", "sparse", "subtree", "existing", "mismatch", "incremental", "first-again"):
         shutil.rmtree(ctx.work / name, ignore_errors=True)
     return results
