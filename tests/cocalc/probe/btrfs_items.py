@@ -12,7 +12,7 @@ import sys
 
 BTRFS_IOC_TREE_SEARCH_V2 = 0xC0709411
 BTRFS_IOC_INO_LOOKUP = 0xD0009412
-KEY = struct.Struct("=QQQQQQQQQIIIIIQQQQ")  # btrfs_ioctl_search_key: 104 bytes
+KEY = struct.Struct("=QQQQQQQIIIIQQQQ")  # btrfs_ioctl_search_key: 7 u64, 4 u32, 4 u64 = 104 bytes
 HDR = struct.Struct("=QQQII")               # transid, objectid, offset, type, len
 EXTENT_DATA_KEY, EXTENT_ITEM_KEY, METADATA_ITEM_KEY = 108, 168, 169
 EXTENT_TREE = 2
@@ -24,7 +24,7 @@ def search(fd, tree, min_obj, max_obj, min_type, max_type, min_off=0, max_off=2*
     while True:
         bufsize = 64 * 1024
         key = KEY.pack(tree, min_obj, max_obj, min_off, max_off, 0, 2**64 - 1,
-                       min_type, max_type, 4096, 0, 0, 0, 0, 0, 0, 0, 0)
+                       min_type, max_type, 4096, 0, 0, 0, 0, 0)
         arg = bytearray(key + struct.pack("=Q", bufsize) + bytes(bufsize))
         fcntl.ioctl(fd, BTRFS_IOC_TREE_SEARCH_V2, arg, True)
         nr = struct.unpack_from("=I", arg, 64)[0]
