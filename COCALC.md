@@ -68,7 +68,7 @@ could run.
 
 - The exclusion must be keyed by the repository, not by the client or host that
   writes into it. When several clients share one repository, every one of them
-  must check the same lock before it starts a backup.
+  must take the same lock before it starts a backup or a prune.
 - rustic takes no lock for this. A backup that deduplicates against blobs a
   concurrent prune drops from the index saves a snapshot that references missing
   blobs: `check --read-data` fails, and the snapshot may not restore.

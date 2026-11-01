@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import shutil
 import signal
 import subprocess
@@ -60,9 +61,9 @@ class Repo:
 
     def killed(self, *args, anchor: str, delay: float, cwd=None):
         """Start the command; once its output shows `anchor`, SIGKILL it after
-        `delay` seconds.  Returns (killed, seconds it ran past the anchor);
-        when it finished first, the seconds are its full time past the anchor,
-        which aims the next kill."""
+        `delay` seconds.  Returns (killed, seconds it ran past the anchor, exit
+        code); when it finished first, the seconds are its full time past the
+        anchor, which aims the next kill."""
         proc = subprocess.Popen(self.argv(*args), cwd=cwd, env=self.env,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         seen = threading.Event()
@@ -74,14 +75,13 @@ class Repo:
         t0 = time.monotonic()
         try:
             if not seen.is_set():  # finished (or failed) before the anchor
-                proc.wait()
-                return False, 0.0
-            proc.wait(timeout=delay)
-            return False, time.monotonic() - t0
+                return False, 0.0, proc.wait()
+            rc = proc.wait(timeout=delay)
+            return False, time.monotonic() - t0, rc
         except subprocess.TimeoutExpired:
             proc.send_signal(signal.SIGKILL)
             proc.wait()
-            return True, delay
+            return True, delay, -signal.SIGKILL
         finally:
             reader.join()
 
@@ -157,9 +157,12 @@ def land_kill(repo: Repo, args, anchor: str, estimate: float, rng: random.Random
     inside the measured time) until a kill lands.  `prepare()` gives the
     command new work after a run that finished.  Returns (new estimate, landed)."""
     for _ in range(ATTEMPTS):
-        landed, ran = repo.killed(*args, anchor=anchor, delay=rng.uniform(0, estimate), cwd=cwd)
+        landed, ran, rc = repo.killed(*args, anchor=anchor, delay=rng.uniform(0, estimate), cwd=cwd)
         if landed:
             return estimate, True
+        if rc != 0:  # a run that got past us must still have succeeded
+            check.problems.append(f"{what}: rustic {' '.join(args)} exited {rc} without being killed")
+            return estimate, False
         estimate = max(0.002, min(estimate, ran) * 0.8)
         prepare()
     check.problems.append(f"{what}: no kill landed in {ATTEMPTS} attempts (aimed down to {estimate:.3f} s)")
@@ -192,14 +195,19 @@ def race(repo: Repo, check: Check, source: Path, prune_args, rng: random.Random)
     while not planned.wait(0.01) and prune.poll() is None:
         pass
     stopped = planned.is_set() and prune.poll() is None
-    if stopped:
-        prune.send_signal(signal.SIGSTOP)
-    backup = repo.run("backup", "--json", "--force", ".", cwd=source, check=False)
-    if stopped:
-        prune.send_signal(signal.SIGCONT)
-    prune.wait(timeout=1800)
-    reader.join()
-    removes = next((int(l.split()[-4]) for l in out if "total prune:" in l), 0)
+    try:
+        if stopped:
+            prune.send_signal(signal.SIGSTOP)
+        backup = repo.run("backup", "--json", "--force", ".", cwd=source, check=False)
+    except BaseException:
+        prune.kill()  # never leave a stopped prune behind
+        raise
+    finally:
+        if stopped:
+            prune.send_signal(signal.SIGCONT)
+        prune.wait(timeout=1800)
+        reader.join()
+    removes = next((int(m[1]) for l in out if (m := re.search(r"total prune:\s+(\d+) blobs", l))), 0)
     result = {"prune": " ".join(prune_args), "stopped_at_plan": stopped, "plan_removes_blobs": removes,
               "backup_rc": backup.returncode, "prune_rc": prune.returncode}
     if not stopped or removes == 0:
@@ -277,6 +285,9 @@ def main() -> int:
     #    index (check_right_after != 0); the NEXT prune recovers the still-existing
     #    packs, after which everything must verify.
     log["race"] = race(repo, check, source, ("--max-unused", "0"), rng)
+    if log["race"]["check_right_after"] == 0:
+        check.problems.append("race: check --read-data passed right after the race; upstream's window "
+                              "should be visible there (a pack fallback would flip this expectation)")
     repo.run("prune")
     check.verify("after a backup inside a prune's window, then a follow-up prune")
 
