@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import shutil
 import sys
 import time
@@ -38,11 +39,30 @@ class CachedRepo(Repo):
                 "--no-progress", *map(str, args)]
 
 
+INDEX_LINE = re.compile(r"IndexId\(([0-9a-f]{64})\)")
+
+
+def parse_index_list(text: str) -> list[str]:
+    """The ids printed by `rustic list index`, one `IndexId(<64 hex>)` per
+    line.  Any other non-empty line is an error, not something to skip."""
+    ids = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        m = INDEX_LINE.fullmatch(line.strip())
+        if not m:
+            raise ValueError(f"unexpected line from `list index`: {line!r}")
+        ids.append(m[1])
+    return ids
+
+
 def pack_types(repo: Repo) -> dict[str, str]:
     """pack id -> "tree" or "data", from every index file."""
     types = {}
-    out = repo.run("list", "index").stdout.decode()
-    for ix in (w for line in out.split() for w in [line.strip("IndexId()")] if len(w) == 64):
+    ids = parse_index_list(repo.run("list", "index").stdout.decode())
+    if not ids:
+        raise ValueError("`list index` printed no index ids")
+    for ix in ids:
         raw = repo.run("cat", "index", ix).stdout.decode()
         doc = json.loads(raw[raw.index("{"):])
         for pack in doc.get("packs") or []:
