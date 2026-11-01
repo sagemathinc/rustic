@@ -101,6 +101,7 @@ fn version_capabilities_do_not_load_profiles() -> TestResult<()> {
     assert_eq!(version["schema_version"], 1);
     assert_eq!(version["capabilities"]["strict_backup"], true);
     assert_eq!(version["capabilities"]["backup_admission"], 1);
+    assert_eq!(version["capabilities"]["reuse_hardlinks"], true);
     assert_eq!(
         version["capabilities"]["sparse_required_restore"],
         cfg!(target_os = "linux")

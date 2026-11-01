@@ -51,6 +51,7 @@ filter-tags-exact = []
 [backup]
 no-scan = false
 strict = false
+reuse-hardlinks = false
 json = false
 long = false
 init = false
