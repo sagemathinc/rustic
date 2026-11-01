@@ -12,7 +12,10 @@ some deliberately outside it), backs it up with the option, and reports:
 plus a control backup without the option.
 
 Usage: b6_adversary.py RUSTIC WORK_DIR [--only NAME,...]
-Exit 1 if an in-contract scenario diverges, or the control does.
+Exit 1 if an in-contract scenario diverges, a control diverges, a future
+TIME is accepted, the baseline reuses nothing, or an out-of-contract
+scenario the oracle must catch (stale_nonempty_target, wrong_parent) shows
+no divergence.  Exit 2 if the binary has no --restored-before.
 """
 import argparse
 import datetime as dt
@@ -106,8 +109,9 @@ def s_baseline(r, w):
 
 
 def s_write_after_time_no_margin(r, w):
-    """Outside: TIME taken right after the restore with no margin, then a
-    same-size, same-mtime rewrite immediately after (coarse ctime)."""
+    """Inside, thanks to rustic's margin: TIME taken right after the restore,
+    then a same-size, same-mtime rewrite immediately after (coarse ctime).
+    The caller adds no margin; rustic's RESTORED_BEFORE_MARGIN must cover it."""
     src = w / "src"; tree(src)
     parent, _ = r.backup(src)
     dest = w / "dest"; r.restore(parent, dest)
