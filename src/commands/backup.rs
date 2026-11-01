@@ -93,6 +93,13 @@ pub struct BackupCmd {
     #[merge(strategy=conflate::bool::overwrite_false)]
     strict: bool,
 
+    /// Read a file with several hard links only once per run: another path of
+    /// the same inode (same device, inode, size, mtime and ctime) reuses the
+    /// content already archived in this run.
+    #[clap(long)]
+    #[merge(strategy=conflate::bool::overwrite_false)]
+    reuse_hardlinks: bool,
+
     /// Work admission (limits reject, never silently exclude files).
     #[clap(flatten, next_help_heading = "Backup work admission")]
     #[serde(flatten)]
@@ -464,6 +471,7 @@ impl BackupCmd {
             .ignore_filter_opts(self.ignore_filter_opts)
             .no_scan(self.no_scan)
             .strict(self.strict)
+            .reuse_hardlinks(self.reuse_hardlinks)
             .admission(self.admission)
             .dry_run(config.global.dry_run);
 

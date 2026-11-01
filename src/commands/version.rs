@@ -27,6 +27,7 @@ impl Runnable for VersionCmd {
                         "backup_inventory": 1,
                         "backup_exclusion_inventory": 1,
                         "backup_admission": 1,
+                        "reuse_hardlinks": true,
                     },
                 })
             );
