@@ -471,10 +471,11 @@ def s7a_ro_flip_mid_run(ctx):
 
 
 def s7b_balance_mid_run(ctx):
-    """A data balance during the run relocates extents.  Accepted outcomes:
-    the run completes with correct content, or it fails closed (the end check
-    sees the source changed, and no snapshot is saved) and a retry without a
-    balance then completes with correct content."""
+    """A data balance during the run relocates extents, which advances the
+    source's generation: the end check must fail the run closed (no snapshot
+    saved; a relocation is indistinguishable from s7a's write).  A retry of the
+    unchanged read-only snapshot then succeeds, restores byte-correctly and
+    still reuses the (relocated, still shared) reflinks."""
     if not ctx.has_flag:
         return [], []
     if not ctx.hooks_binary:
@@ -486,15 +487,18 @@ def s7b_balance_mid_run(ctx):
     repo = ctx.repo("s7b")
     rc, out, err = ctx.paused_backup(repo, snap, lambda: btrfs.run("btrfs", "balance", "start", "--full-balance", ctx.work))
     fixture = [] if btrfs.bytenrs(snap / "store" / "pkg00") != before else ["the balance did not relocate the data"]
-    if rc:
-        if not FAILED_CLOSED.search(err):
-            return fixture, [f"the run failed during a balance, not by the end check: {err[-800:]}"]
-        if ctx.snapshot_count(repo):
-            return fixture, ["the run failed closed during a balance but saved a snapshot"]
-        snapshot = ctx.backup(repo, snap, reuse=True)[0]  # the retry
-    else:
-        snapshot = json.loads(out)["id"]
-    return fixture, compare(want, ctx.restored(repo, snapshot, "s7b"))
+    problems = []
+    if rc == 0:
+        problems.append("the run succeeded although a balance relocated the source mid-run")
+    elif not FAILED_CLOSED.search(err):
+        problems.append(f"the run failed during a balance, but not by the end check: {err[-800:]}")
+    if ctx.snapshot_count(repo):
+        problems.append("a snapshot was saved by the run during the balance")
+    snapshot, _, reused = ctx.backup(repo, snap, reuse=True)  # the retry
+    problems += compare(want, ctx.restored(repo, snapshot, "s7b"))
+    if reused < 24 * 256 * 1024:  # wt/ is reflinks of store/, read once
+        problems.append(f"the retry after the balance did not reuse the worktree ({reused} bytes)")
+    return fixture, problems
 
 
 def s8_repack_between_runs(ctx):
