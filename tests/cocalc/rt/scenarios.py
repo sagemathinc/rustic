@@ -275,21 +275,9 @@ def incremental(ctx):
 # as an unexpected pass, so the entry is removed together with the fix.
 DEEP = r"\d\d-d{247}"
 EXPECTED_FAILURES: dict[str, tuple[str, list[str]]] = {
-    "over_existing": (
-        "restore --delete does not recreate a directory the target has as a file",
-        [r"missing: 'empty-dir'"],
-    ),
-    "mismatch_without_delete": (
-        "a restore that cannot create a snapshot directory exits 0",
-        [r"restore exited 0 although directory 'empty-dir' could not be created"],
-    ),
     "deep_path": (
         "the source walker uses full paths, so entries beyond PATH_MAX are skipped",
         [rf"missing: '{DEEP}(/{DEEP})*(/bottom)?'"],
-    ),
-    "deep_path_recorded": (
-        "a backup that skipped entries does not record that in the snapshot",
-        [r"snapshot of a backup that skipped entries has no error_count: .*"],
     ),
     "root_metadata": (
         "the restore target's own metadata is not restored",

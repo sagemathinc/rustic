@@ -93,10 +93,18 @@ class Selection(unittest.TestCase):
 
 class ExpectedFailures(unittest.TestCase):
     def test_only_matching_problems_are_expected(self):
-        self.assertEqual(scenarios.unexplained("over_existing", ["missing: 'empty-dir'"]), [])
-        for other in ["missing: 'empty-dir/x'", "differs: 'plain' {...}", "error: rustic restore exited 1"]:
+        expected = "root mode: '0o750' != '0o755'"
+        self.assertEqual(scenarios.unexplained("root_metadata", [expected]), [])
+        for other in ["missing: 'child'", "differs: 'child' {...}", "error: rustic restore exited 1"]:
             with self.subTest(other):
-                self.assertEqual(scenarios.unexplained("over_existing", ["missing: 'empty-dir'", other]), [other])
+                self.assertEqual(scenarios.unexplained("root_metadata", [expected, other]), [other])
+
+    def test_scenarios_fixed_by_the_core_pin_are_not_expected_failures(self):
+        # fixed in rustic_core (restore type mismatch; error_count in the summary):
+        # any regression must fail CI, so these must never return to the list
+        for name in ("over_existing", "mismatch_without_delete", "deep_path_recorded"):
+            with self.subTest(name):
+                self.assertNotIn(name, scenarios.EXPECTED_FAILURES)
 
     def test_unlisted_scenarios_keep_every_problem(self):
         self.assertEqual(scenarios.unexplained("full_dense", ["missing: 'empty-dir'"]), ["missing: 'empty-dir'"])
