@@ -66,7 +66,10 @@ Never run `prune` while a backup into the same repository can run. Serialize
 them per repository, and never use `prune --instant-delete` while any backup
 could run.
 
-- rustic needs no lock for this, but a backup that dedups against blobs a
+- The exclusion must be keyed by the repository, not by the client or host that
+  writes into it. When several clients share one repository, every one of them
+  must check the same lock before it starts a backup.
+- rustic takes no lock for this, but a backup that dedups against blobs a
   concurrent prune drops from the index saves a snapshot that references missing
   blobs. `check --read-data` fails, and the snapshot may not restore.
 - With the default two-phase prune, the next prune recovers the still-existing
