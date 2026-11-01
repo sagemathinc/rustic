@@ -71,6 +71,7 @@ skip-if-unchanged = false
 force = false
 ignore-ctime = false
 ignore-inode = false
+detect-moves = false
 globs = []
 iglobs = []
 glob-files = []

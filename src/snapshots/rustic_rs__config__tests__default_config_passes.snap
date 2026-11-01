@@ -142,6 +142,9 @@ RusticConfig {
             force: false,
             ignore_ctime: false,
             ignore_inode: false,
+            restored_before: None,
+            detect_moves: false,
+            detect_moves_max_entries: None,
         },
         excludes: Excludes {
             globs: [],
