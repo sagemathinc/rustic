@@ -115,6 +115,7 @@ RusticConfig {
         no_scan: false,
         strict: false,
         reuse_hardlinks: false,
+        reuse_extents: false,
         admission: BackupAdmissionOptions {
             max_entries: None,
             max_apparent_bytes: None,
