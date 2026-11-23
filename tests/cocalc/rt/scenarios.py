@@ -11,6 +11,29 @@ from .manifest import compare, manifest
 
 SPARSE = ["--sparse", "by-content-required"]
 
+# backup saved a snapshot but could not read some source entries
+INCOMPLETE = 3
+
+
+def has_exit_error(stderr: str, code: int) -> bool:
+    """Whether stderr has a JSON line {"message_type": "exit_error", "code": code}.
+
+    --json backups write one when they exit non-zero; other lines (log output) are skipped.
+    """
+    for line in stderr.splitlines():
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if (
+            isinstance(obj, dict)
+            and obj.get("message_type") == "exit_error"
+            and type(obj.get("code")) is int
+            and obj["code"] == code
+        ):
+            return True
+    return False
+
 
 class RusticFailed(Exception):
     """A rustic command that exited non-zero, with what it said."""
@@ -40,16 +63,25 @@ class Context:
         self.snapshot = ""
         self.want: dict = {}
 
-    def run(self, *args, cwd=None) -> bytes:
-        result = subprocess.run(
+    def run_result(self, *args, cwd=None) -> subprocess.CompletedProcess:
+        """Run rustic and return the result, whatever its exit code."""
+        return subprocess.run(
             [*self.common, *args], cwd=cwd or self.work, env=self.env, capture_output=True, timeout=1200
         )
+
+    def run(self, *args, cwd=None) -> bytes:
+        result = self.run_result(*args, cwd=cwd)
         if result.returncode:
             raise RusticFailed(args, result.returncode, result.stderr.decode(errors="replace"))
         return result.stdout
 
-    def backup(self, source: Path, *args) -> str:
-        return json.loads(self.run("backup", "--json", *args, ".", cwd=source))["id"]
+    def backup(self, source: Path, *args, incomplete_ok=False) -> str:
+        """The id of the new snapshot; with incomplete_ok also of one saved with skipped entries."""
+        args = ("backup", "--json", *args, ".")
+        result = self.run_result(*args, cwd=source)
+        if result.returncode and not (incomplete_ok and result.returncode == INCOMPLETE):
+            raise RusticFailed(args, result.returncode, result.stderr.decode(errors="replace"))
+        return json.loads(result.stdout)["id"]
 
     def fresh(self, name: str) -> Path:
         path = self.work / name
@@ -177,23 +209,34 @@ def deep_path(ctx):
     """A file whose full path is longer than PATH_MAX (4096 bytes)."""
     source = make_deep_tree(ctx.fresh("source-deep"))
     want = manifest(source)
-    snapshot = ctx.backup(source)
+    snapshot = ctx.backup(source, incomplete_ok=True)
     return compare(want, ctx.restore(snapshot, ctx.fresh("restored-deep")))
 
 
 def deep_path_recorded(ctx):
-    """A backup that had to skip entries says so in the snapshot, and --strict refuses it."""
+    """A backup that had to skip entries says so in the snapshot and its exit code, and --strict refuses it."""
     source = ctx.work / "source-deep"  # made by deep_path, or here when run alone
     if not source.exists():
         make_deep_tree(ctx.fresh("source-deep"))
-    snapshot = json.loads(ctx.run("backup", "--json", ".", cwd=source))
+    result = ctx.run_result("backup", "--json", ".", cwd=source)
+    stderr = result.stderr.decode(errors="replace")
     problems = []
+    if result.returncode != INCOMPLETE:
+        problems.append(f"backup that skipped entries exited {result.returncode}, not {INCOMPLETE}: {stderr[-500:]}")
+    if not has_exit_error(stderr, INCOMPLETE):
+        problems.append("backup --json that skipped entries wrote no JSON exit_error line with code 3 to stderr")
+    try:
+        snapshot = json.loads(result.stdout)
+    except ValueError:
+        return problems + [f"backup --json printed no snapshot JSON: {result.stdout[-300:]!r}"]
     if not snapshot.get("summary", {}).get("error_count"):
         problems.append(f"snapshot of a backup that skipped entries has no error_count: {snapshot.get('summary')}")
     try:
         ctx.run("backup", "--strict", ".", cwd=source)
         problems.append("backup --strict saved a snapshot although it skipped entries")
     except RusticFailed as err:
+        if err.returncode == INCOMPLETE:
+            problems.append(f"backup --strict exited {INCOMPLETE}, the code of a saved incomplete snapshot")
         problems += failed_because(err, r"Strict backup failed because source inspection", "backup --strict")
     return problems
 

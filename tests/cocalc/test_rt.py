@@ -18,6 +18,9 @@ from rt.scenarios import RusticFailed  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 
+# what a --json backup that skipped entries writes to stderr since v0.12.0
+EXIT_LINE = '{"message_type":"exit_error","code":3,"message":"at least one source file could not be read"}\n'
+
 
 class FakeContext:
     """Stands in for rt.scenarios.Context: every failing command fails with `stderr`."""
@@ -26,14 +29,21 @@ class FakeContext:
         self.work = work
         self.stderr = stderr
         self.as_root = False
+        # a non-strict --json backup of skipped entries
+        self.backup_rc = scenarios.INCOMPLETE
+        self.backup_stderr = EXIT_LINE
 
     def fresh(self, name):
         path = self.work / name
         path.mkdir()
         return path
 
-    def backup(self, source, *args):
+    def backup(self, source, *args, incomplete_ok=False):
         return "0" * 64
+
+    def run_result(self, *args, cwd=None):
+        stdout = json.dumps({"id": "0" * 64, "summary": {"error_count": 2}}).encode()
+        return subprocess.CompletedProcess(args, self.backup_rc, stdout, self.backup_stderr.encode())
 
     def run(self, *args, cwd=None):
         if "--strict" in args:
@@ -71,6 +81,76 @@ class CommandFailures(unittest.TestCase):
         for name, stderr in self.expected.items():
             with self.subTest(name):
                 self.assertEqual(self.run_scenario(name, stderr), [])
+
+
+class ExitErrorLine(unittest.TestCase):
+    """has_exit_error accepts only a decoded exit_error object with exactly the code."""
+
+    def test_accepted(self):
+        for stderr in (
+            EXIT_LINE,
+            '{ "code": 3, "message": "x", "message_type": "exit_error" }\n',
+            "[WARN] some source files could not be read\n" + EXIT_LINE + "[INFO] done\n",
+        ):
+            with self.subTest(stderr=stderr):
+                self.assertTrue(scenarios.has_exit_error(stderr, 3))
+
+    def test_rejected(self):
+        for stderr in (
+            "",
+            '{"message_type":"exit_error","code":3,\n',
+            '{"message_type":"exit_error","code":3,"message":"x"\n',
+            'prefix {"message_type":"exit_error","code":3,"message":"x"}\n',
+            '{"message_type":"exit_error","code":1,"message":"x"}\n',
+            '{"message_type":"exit_error","code":"3","message":"x"}\n',
+            '{"message_type":"exit_error","code":3.0,"message":"x"}\n',
+            '{"message_type":"exit_error","code":true,"message":"x"}\n',
+            '{"message_type":"summary","code":3}\n',
+            '{"code":3}\n',
+            '[{"message_type":"exit_error","code":3}]\n',
+        ):
+            with self.subTest(stderr=stderr):
+                self.assertFalse(scenarios.has_exit_error(stderr, 3))
+
+
+class IncompleteBackup(unittest.TestCase):
+    """deep_path_recorded needs exit 3 and the JSON exit_error line from a backup that skipped entries."""
+
+    strict = "Strict backup failed because source inspection or file processing was incomplete."
+
+    def run_with(self, backup_rc, backup_stderr, strict_rc=1):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = FakeContext(Path(tmp), self.strict)
+            ctx.backup_rc = backup_rc
+            ctx.backup_stderr = backup_stderr
+            if strict_rc != 1:
+                def run(*args, cwd=None):
+                    raise RusticFailed(args, strict_rc, self.strict)
+                ctx.run = run
+            return scenarios.deep_path_recorded(ctx)
+
+    def test_exit_3_with_the_json_line_passes(self):
+        self.assertEqual(self.run_with(3, EXIT_LINE), [])
+
+    def test_exit_0_is_a_problem(self):
+        problems = self.run_with(0, EXIT_LINE)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("exited 0, not 3", problems[0])
+
+    def test_a_missing_json_line_is_a_problem(self):
+        problems = self.run_with(3, "[WARN] some source files could not be read\n")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("no JSON exit_error line", problems[0])
+
+    def test_a_truncated_json_line_is_a_problem(self):
+        problems = self.run_with(3, '{"message_type":"exit_error","code":3,\n')
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("no JSON exit_error line", problems[0])
+
+    def test_strict_exiting_3_is_a_problem(self):
+        problems = self.run_with(3, EXIT_LINE, strict_rc=3)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("backup --strict exited 3", problems[0])
 
 
 class Selection(unittest.TestCase):
