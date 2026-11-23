@@ -22,7 +22,7 @@ H = "b" * 64
 def good_record(**over):
     rec = {"run": "A", "head_sha": SHA40, "start_utc": "2026-11-23T21:00:00Z", "end_utc": "2026-11-23T21:30:00Z",
            "nproc": "4", "uname": "Linux x 6.8.0 x86_64", "df_before": "/dev/root 1 2 3 4% /", "df_after": "/dev/root 1 2 3 4% /",
-           "rustc_vv": "rustc 1.95.0;host: x86_64-unknown-linux-gnu;", "cargo_v": "cargo 1.95.0",
+           "rustc_vv": "rustc 1.95.0 (59807616e 2026-04-14);binary: rustc;host: x86_64-unknown-linux-gnu;release: 1.95.0;LLVM version: 22;", "cargo_v": "cargo 1.95.0",
            "llvm_cov_version": "cargo-llvm-cov 0.9.2", "cargo_path": "/c", "rustc_path": "/r",
            "cargo_llvm_cov_path": "/l", "llvm-profdata_path": "/p", "llvm-cov_path": "/v", "export_sha256": H,
            "cargo_lock_sha_before": H, "cargo_lock_sha_after": H, "cargo_sha256": H, "rustc_sha256": H,
@@ -54,7 +54,7 @@ class Version(unittest.TestCase):
 
 class Record(unittest.TestCase):
     def test_good(self):
-        self.assertEqual(fin.check_record(good_record(), SHA40), [])
+        self.assertEqual(fin.check_record(good_record(), SHA40, "1.95.0"), [])
 
     def test_each_required_field(self):
         for k in fin.NONEMPTY + fin.SHA256_FIELDS:
@@ -64,28 +64,60 @@ class Record(unittest.TestCase):
                     rec.pop(k)
                 else:
                     rec[k] = bad
-                self.assertTrue(fin.check_record(rec, SHA40), k)
+                self.assertTrue(fin.check_record(rec, SHA40, "1.95.0"), k)
 
     def test_each_rc(self):
         for k in fin.ZERO_RC:
             for bad in ("1", "no-flag", "", None):
                 rec = good_record(**{k: bad}) if bad is not None else {x: v for x, v in good_record().items() if x != k}
-                self.assertTrue(fin.check_record(rec, SHA40), (k, bad))
+                self.assertTrue(fin.check_record(rec, SHA40, "1.95.0"), (k, bad))
 
     def test_lock_changed(self):
-        self.assertIn("Cargo.lock changed", fin.check_record(good_record(cargo_lock_sha_after="c" * 64), SHA40))
+        self.assertIn("Cargo.lock changed", fin.check_record(good_record(cargo_lock_sha_after="c" * 64), SHA40, "1.95.0"))
 
     def test_head(self):
-        self.assertTrue(fin.check_record(good_record(), "c" * 40))
-        self.assertTrue(fin.check_record(good_record(), ""))
-        self.assertTrue(fin.check_record(good_record(head_sha=SHA40), SHA40[:39]))
+        self.assertTrue(fin.check_record(good_record(), "c" * 40, "1.95.0"))
+        self.assertTrue(fin.check_record(good_record(), "", "1.95.0"))
+        self.assertTrue(fin.check_record(good_record(head_sha=SHA40), SHA40[:39], "1.95.0"))
 
     def test_version_in_record(self):
-        self.assertTrue(fin.check_record(good_record(llvm_cov_version="cargo-llvm-cov 0.9.20"), SHA40))
+        self.assertTrue(fin.check_record(good_record(llvm_cov_version="cargo-llvm-cov 0.9.20"), SHA40, "1.95.0"))
 
     def test_times(self):
-        self.assertTrue(fin.check_record(good_record(end_utc="2026-11-23T20:00:00Z"), SHA40))
-        self.assertTrue(fin.check_record(good_record(start_utc="yesterday"), SHA40))
+        self.assertTrue(fin.check_record(good_record(end_utc="2026-11-23T20:00:00Z"), SHA40, "1.95.0"))
+        self.assertTrue(fin.check_record(good_record(start_utc="yesterday"), SHA40, "1.95.0"))
+
+
+class Toolchain(unittest.TestCase):
+    # real rustc -vV lines recorded by CI runs 45273226152 (core, 1.95.0) and 45273259059 (CLI, 1.94.0), ';'-joined
+    REAL_195 = "rustc 1.95.0 (59807616e 2026-04-14);binary: rustc;commit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860;commit-date: 2026-04-14;host: x86_64-unknown-linux-gnu;release: 1.95.0;LLVM version: 22"
+    REAL_194 = "rustc 1.94.0 (4a4ef493e 2026-03-02);binary: rustc;commit-hash: 4a4ef493e3a1488c6e321570238084b38948f6db;commit-date: 2026-03-02;host: x86_64-unknown-linux-gnu;release: 1.94.0;LLVM version: 21"
+
+    def test_declared_release(self):
+        self.assertTrue(fin.rustc_ok(self.REAL_195, "1.95.0"))
+        self.assertTrue(fin.rustc_ok(self.REAL_194, "1.94.0"))
+        self.assertEqual(fin.check_record(good_record(rustc_vv=self.REAL_194), SHA40, "1.94.0"), [])
+
+    def test_other_release_rejected(self):
+        self.assertFalse(fin.rustc_ok(self.REAL_194, "1.95.0"))
+        self.assertFalse(fin.rustc_ok(self.REAL_195, "1.94.0"))
+        for v in (self.REAL_195.replace("release: 1.95.0", "release: 1.95.01"),
+                  self.REAL_195.replace("release: 1.95.0", "release: 1.95.0-nightly"), "rustc 1.95.0", ""):
+            self.assertFalse(fin.rustc_ok(v, "1.95.0"), v)
+        self.assertTrue(fin.check_record(good_record(rustc_vv=self.REAL_194), SHA40, "1.95.0"))
+
+    def test_declared_value_must_be_a_release(self):
+        """A missing or malformed declaration never passes, even if rustc_vv happens to contain it."""
+        for bad in ("", "1.95", "1.95.0 ", "stable", "1.95.0;release: 1.95.0"):
+            self.assertFalse(fin.rustc_ok(self.REAL_195, bad), bad)
+            self.assertTrue(fin.check_record(good_record(rustc_vv=self.REAL_195), SHA40, bad), bad)
+        # a malformed declaration that rustc -vV happens to contain must still fail
+        for bad in ("1.95", "stable", ""):
+            crafted = self.REAL_195 + f";release: {bad}"
+            self.assertFalse(fin.rustc_ok(crafted, bad), bad)
+
+    def test_release_line_exactly_once(self):
+        self.assertFalse(fin.rustc_ok(self.REAL_195 + ";release: 1.95.0", "1.95.0"))
 
 
 class Setup(unittest.TestCase):

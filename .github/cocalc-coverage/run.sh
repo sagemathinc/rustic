@@ -5,10 +5,12 @@
 # to OUTDIR, and finish.py decides CANDIDATE or DIAGNOSTIC from them afterwards.
 set -uo pipefail
 run="${1:?run}"; out="${2:?outdir}"
+# args: the measured command; rargs: the report commands, which take no build options
+# such as --features (cargo llvm-cov report rejects them)
 case "$run" in
-  A) args=(--workspace) ;;
-  A-hooks) args=(--workspace --features rustic_core/test-hooks) ;;
-  B) args=() ;;
+  A) args=(--workspace); rargs=(--workspace) ;;
+  A-hooks) args=(--workspace --features rustic_core/test-hooks); rargs=(--workspace) ;;
+  B) args=(); rargs=() ;;
   *) echo "unknown run: $run" >&2; exit 2 ;;
 esac
 mkdir -p "$out"
@@ -29,12 +31,12 @@ if [ -s "$out/$run.json" ]; then
   rec json_rc 0
 else
   rec json_source report
-  cargo llvm-cov report "${args[@]}" --json --output-path "$out/$run.json" >> "$out/test-output.txt" 2>&1
+  cargo llvm-cov report "${rargs[@]}" --json --output-path "$out/$run.json" >> "$out/test-output.txt" 2>&1
   rec json_rc "$?"
 fi
-cargo llvm-cov report "${args[@]}" --lcov --output-path "$out/$run.lcov" > "$out/report-lcov.log" 2>&1
+cargo llvm-cov report "${rargs[@]}" --lcov --output-path "$out/$run.lcov" > "$out/report-lcov.log" 2>&1
 rec lcov_rc "$?"
-cargo llvm-cov report "${args[@]}" --summary-only > "$out/summary.txt" 2> "$out/report-summary.log"
+cargo llvm-cov report "${rargs[@]}" --summary-only > "$out/summary.txt" 2> "$out/report-summary.log"
 rec summary_rc "$?"
 rec export_sha256 "$(sha256sum "$out/$run.json" 2>/dev/null | cut -d' ' -f1)"
 finish_record

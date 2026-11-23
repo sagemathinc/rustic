@@ -26,6 +26,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cov_modules_v4 as cm  # noqa: E402
 
 VERSION_LINE = re.compile(r"cargo-llvm-cov 0\.9\.2")  # used with fullmatch: no 0.9.20, no suffix
+# the rustc release the workflow declares for this repository (EXPECTED_RUSTC_RELEASE, e.g. 1.95.0)
+RELEASE_VALUE = re.compile(r"\d+\.\d+\.\d+")
 RESULT = re.compile(r"^test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored;", re.M)
 FAILED_TEST = re.compile(r"^test (\S+) \.\.\. FAILED$", re.M)
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -61,6 +63,13 @@ def version_ok(line: str) -> bool:
     return VERSION_LINE.fullmatch(line.strip()) is not None
 
 
+def rustc_ok(rustc_vv: str, expected: str) -> bool:
+    """rustc -vV, recorded with newlines turned into ';': exactly one item must be 'release: <expected>'."""
+    if not RELEASE_VALUE.fullmatch(expected):
+        return False
+    return [item.strip() for item in rustc_vv.split(";")].count(f"release: {expected}") == 1
+
+
 def check_setup(setup: dict, is_pr: bool, run: str) -> list:
     required = ["install_rc", "parser_selftest_rc"]
     if is_pr:
@@ -76,7 +85,7 @@ def check_setup(setup: dict, is_pr: bool, run: str) -> list:
     return problems
 
 
-def check_record(rec: dict, intended: str) -> list:
+def check_record(rec: dict, intended: str, expected_rustc: str) -> list:
     problems = []
     for k in NONEMPTY:
         if not rec.get(k):
@@ -91,6 +100,8 @@ def check_record(rec: dict, intended: str) -> list:
         problems.append("Cargo.lock changed")
     if not SHA.fullmatch(intended) or rec.get("head_sha") != intended:
         problems.append(f"checked-out HEAD {rec.get('head_sha')!r} is not the intended commit {intended!r}")
+    if not rustc_ok(rec.get("rustc_vv", ""), expected_rustc):
+        problems.append(f"rustc is not the declared release {expected_rustc!r}")
     if not version_ok(rec.get("llvm_cov_version", "")):
         problems.append(f"cargo-llvm-cov version line is {rec.get('llvm_cov_version')!r}")
     try:
@@ -192,11 +203,12 @@ def main(argv) -> int:
     rec, setup = read_env(out / "record.env"), read_env(out / "setup.env")
     run = rec.get("run", "?")
     intended = os.environ.get("INTENDED_SHA", "")
+    expected_rustc = os.environ.get("EXPECTED_RUSTC_RELEASE", "")
     is_pr = bool(os.environ.get("PR_BASE_SHA"))
     meta = {"record": rec, "setup": setup,
             "github": {k: os.environ.get(k) for k in
                        ("GITHUB_SHA", "GITHUB_REF", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_EVENT_NAME",
-                        "PR_BASE_SHA", "PR_HEAD_SHA", "INTENDED_SHA")}}
+                        "PR_BASE_SHA", "PR_HEAD_SHA", "INTENDED_SHA", "EXPECTED_RUSTC_RELEASE")}}
     problems = []
     try:
         meta["spec_sha256"] = hashlib.sha256(spec.read_bytes()).hexdigest()
@@ -205,7 +217,7 @@ def main(argv) -> int:
     changed = out / "changed-paths.txt"
     meta["changed_paths"] = changed.read_text().split() if changed.exists() else None
     problems += check_setup(setup, is_pr, run)
-    problems += check_record(rec, intended)
+    problems += check_record(rec, intended, expected_rustc)
     if run == "C":
         p, meta["suites"] = check_suites(rec)
     elif run in ("A", "A-hooks", "B"):

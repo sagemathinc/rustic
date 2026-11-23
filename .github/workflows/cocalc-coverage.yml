@@ -32,6 +32,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
+      # measured with the toolchain this repository builds and releases with: its
+      # rust-toolchain.toml pins 1.94.0.  No override here, so if that pin changes, the
+      # gate in finish.py fails until this declaration is updated with it.
+      EXPECTED_RUSTC_RELEASE: "1.94.0"
       CARGO_INCREMENTAL: "0"
       RUST_BACKTRACE: "0"
       OUT: ${{ github.workspace }}/coverage-out/${{ matrix.run }}
@@ -54,7 +58,7 @@ jobs:
         run: mkdir -p "$OUT" && touch "$OUT/setup.env"
       - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # v1
         with:
-          toolchain: 1.95.0
+          toolchain: 1.94.0
           components: llvm-tools-preview
       - name: Install cargo-llvm-cov 0.9.2
         run: |
