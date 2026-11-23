@@ -111,13 +111,23 @@ class Toolchain(unittest.TestCase):
         for bad in ("", "1.95", "1.95.0 ", "stable", "1.95.0;release: 1.95.0"):
             self.assertFalse(fin.rustc_ok(self.REAL_195, bad), bad)
             self.assertTrue(fin.check_record(good_record(rustc_vv=self.REAL_195), SHA40, bad), bad)
-        # a malformed declaration that rustc -vV happens to contain must still fail
-        for bad in ("1.95", "stable", ""):
-            crafted = self.REAL_195 + f";release: {bad}"
+        # a malformed declaration must fail even when it is rustc -vV's ONLY release item:
+        # the real CI line with its one release item REPLACED (not appended), so the
+        # release-items rule passes and only the X.Y.Z declaration check can reject it
+        for bad in ("1.95", "stable", "1.95.0-beta"):
+            crafted = self.REAL_195.replace("release: 1.95.0", f"release: {bad}")
+            self.assertEqual([i for i in crafted.split(";") if i.startswith("release:")], [f"release: {bad}"])
             self.assertFalse(fin.rustc_ok(crafted, bad), bad)
+            self.assertTrue(fin.check_record(good_record(rustc_vv=crafted), SHA40, bad), bad)
 
     def test_release_line_exactly_once(self):
         self.assertFalse(fin.rustc_ok(self.REAL_195 + ";release: 1.95.0", "1.95.0"))
+
+    def test_no_foreign_release_line(self):
+        """The declared release plus any other release item is contradictory evidence: rejected."""
+        self.assertFalse(fin.rustc_ok("rustc 1.95.0;release: 1.95.0;release: 1.94.0;LLVM version: 22", "1.95.0"))
+        self.assertFalse(fin.rustc_ok(self.REAL_195 + ";release:1.94.0", "1.95.0"))
+        self.assertTrue(fin.check_record(good_record(rustc_vv=self.REAL_195 + ";release: 1.94.0"), SHA40, "1.95.0"))
 
 
 class Setup(unittest.TestCase):

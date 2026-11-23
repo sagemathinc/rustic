@@ -64,10 +64,12 @@ def version_ok(line: str) -> bool:
 
 
 def rustc_ok(rustc_vv: str, expected: str) -> bool:
-    """rustc -vV, recorded with newlines turned into ';': exactly one item must be 'release: <expected>'."""
+    """rustc -vV, recorded with newlines turned into ';': its release items, all of them,
+    must be exactly ['release: <expected>'] (one release line, and it is the declared one)."""
     if not RELEASE_VALUE.fullmatch(expected):
         return False
-    return [item.strip() for item in rustc_vv.split(";")].count(f"release: {expected}") == 1
+    releases = [item.strip() for item in rustc_vv.split(";") if item.strip().startswith("release:")]
+    return releases == [f"release: {expected}"]
 
 
 def check_setup(setup: dict, is_pr: bool, run: str) -> list:
