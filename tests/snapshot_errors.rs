@@ -65,17 +65,21 @@ fn snapshots_show_source_errors() -> TestResult<()> {
     deep_source(&source)?;
     rustic(&temp_dir).arg("init").assert().success();
 
+    // a strict backup fails without a snapshot, so not with the incomplete-snapshot code 3
     rustic(&temp_dir)
         .args(["backup", "--strict"])
         .arg(&source)
         .assert()
-        .failure();
-    // a non-strict backup saves the snapshot and records how many errors it met
+        .failure()
+        .code(predicate::ne(3));
+    // a non-strict backup saves the snapshot, records how many errors it met and
+    // exits with 3; with --json the exit error is a JSON line on stderr
     let output = rustic(&temp_dir)
         .args(["backup", "--json"])
         .arg(&source)
         .assert()
-        .success()
+        .code(3)
+        .stderr(predicate::str::contains(r#"{"message_type":"exit_error","code":3,"#))
         .get_output()
         .stdout
         .clone();
