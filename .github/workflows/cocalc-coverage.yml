@@ -1,0 +1,119 @@
+name: CoCalc coverage
+
+# Line, region and function coverage of the rustic CLI crate with cargo-llvm-cov,
+# measured exactly as .github/cocalc-coverage/SPEC.md defines, so that runs before
+# and after a change can be compared.  B: the Rust tests.  C: the end-to-end suites
+# in tests/cocalc against an instrumented binary, on loopback filesystems.
+# A run that passes every automated gate is a CANDIDATE; anything else is DIAGNOSTIC
+# (kept as an artifact, and the job fails).  A CANDIDATE becomes a reference
+# measurement only through a separate review of its artifacts.
+
+on:
+  pull_request:
+    branches: ["cocalc/main"]
+  workflow_dispatch:
+  schedule:
+    - cron: "53 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: Coverage (${{ matrix.run }})
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [B, C]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      # measured with the toolchain this repository builds and releases with: its
+      # rust-toolchain.toml pins 1.94.0.  No override here, so if that pin changes, the
+      # gate in finish.py fails until this declaration is updated with it.
+      EXPECTED_RUSTC_RELEASE: "1.94.0"
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "0"
+      OUT: ${{ github.workspace }}/coverage-out/${{ matrix.run }}
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      # the exact commit measured: the PR head (not GitHub's merge ref), else the pushed/dispatched ref
+      INTENDED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ env.INTENDED_SHA }}
+          fetch-depth: 0
+      # From here on no step aborts: each records its exit status in setup.env or
+      # record.env, and the Verdict step gates on all of them, so every failure still
+      # leaves its artifacts.  If checkout itself fails, there is nothing to upload.  If
+      # the toolchain action fails, the steps after it are skipped; Verdict (plain
+      # python3) then finds the setup and run records missing, marks the run DIAGNOSTIC,
+      # and everything written so far is uploaded.
+      - name: Output directory
+        run: mkdir -p "$OUT" && touch "$OUT/setup.env"
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # v1
+        with:
+          toolchain: 1.94.0
+          components: llvm-tools-preview
+      - name: Install cargo-llvm-cov 0.9.2
+        run: |
+          set +e
+          cargo install cargo-llvm-cov --version 0.9.2 --locked > "$OUT/install.log" 2>&1
+          echo "install_rc=$?" >> "$OUT/setup.env"
+      - name: Install btrfs-progs
+        if: matrix.run == 'C'
+        run: |
+          set +e
+          { sudo apt-get update -qq && sudo apt-get install -y -qq btrfs-progs; } > "$OUT/apt.log" 2>&1
+          echo "btrfs_progs_rc=$?" >> "$OUT/setup.env"
+      - name: Parser and verdict self-tests
+        run: |
+          set +e
+          python3 -I .github/cocalc-coverage/test_cov_modules_v4.py > "$OUT/selftest-parser.log" 2>&1
+          a=$?
+          python3 -I .github/cocalc-coverage/test_finish.py > "$OUT/selftest-finish.log" 2>&1
+          b=$?
+          echo "parser_selftest_rc=$(( a != 0 || b != 0 ))" >> "$OUT/setup.env"
+      - name: Changed paths (base..head of the pull request)
+        run: |
+          set +e
+          if [ -n "$PR_BASE_SHA" ]; then
+            git diff --name-only "$PR_BASE_SHA" "$PR_HEAD_SHA" > "$OUT/changed-paths.txt"
+            echo "changed_paths_rc=$?" >> "$OUT/setup.env"
+          fi
+      - name: Measure (B)
+        if: matrix.run == 'B'
+        run: bash .github/cocalc-coverage/run.sh B "$OUT"
+      - name: Measure (C)
+        if: matrix.run == 'C'
+        run: bash .github/cocalc-coverage/run_c.sh "$OUT" "${{ github.run_id }}"
+      - name: rustic_core revision in Cargo.lock
+        if: always()
+        run: |
+          set +e
+          # the whole lock entry (with its git source and rev); empty means it is missing
+          sed -n '/^name = "rustic_core"$/,/^$/p' Cargo.lock > "$OUT/rustic_core-lock-entry.txt"
+          grep -q '^source = "git+' "$OUT/rustic_core-lock-entry.txt"
+          echo "core_lock_entry_rc=$?" >> "$OUT/setup.env"
+      - name: Verdict
+        id: verdict
+        if: always()
+        run: |
+          set +e
+          python3 -I .github/cocalc-coverage/finish.py "$OUT" "$GITHUB_WORKSPACE" .github/cocalc-coverage/SPEC.md
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.run }}
+          path: coverage-out/${{ matrix.run }}/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Fail unless CANDIDATE
+        if: always()
+        run: test "${{ steps.verdict.outputs.rc }}" = "0"
