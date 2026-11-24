@@ -1,0 +1,13 @@
+diff --git a/crates/core/src/backend/node.rs b/crates/core/src/backend/node.rs
+index 9f80e7b..e15ac58 100644
+--- a/crates/core/src/backend/node.rs
++++ b/crates/core/src/backend/node.rs
+@@ -345,7 +345,7 @@ impl Node {
+     #[must_use]
+     pub fn new_node(name: &OsStr, node_type: NodeType, meta: Metadata) -> Self {
+         Self {
+-            name: escape_filename(name),
++            name: name.to_string_lossy().to_string(), // mutant a5: names stored lossily
+             node_type,
+             content: None,
+             subtree: None,

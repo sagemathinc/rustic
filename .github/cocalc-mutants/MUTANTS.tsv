@@ -1,1 +1,7 @@
 id	target	patch	test	expect	kind
+a1	core	a1-skip-set-xattr.patch	rt-snap:snapshot_source	differs: *'xattrs'	real
+a2	core	a2-sparse-writes-dense.patch	rt-snap:snapshot_source	hole allocated:	real
+a3	core	a3-hardlinks-as-copies.patch	rt-snap:snapshot_source	hardlink groups:	real
+a4	core	a4-mtime-whole-seconds.patch	rt-snap:snapshot_source	differs: *'mtime_ns'	real
+a5	core	a5-names-lossy.patch	rt-snap:snapshot_source	missing: 'non-utf8-	real
+a6	core	a6-no-create-dir.patch	rt-snap:snapshot_source	missing: 'empty-dir'	real

@@ -1,0 +1,13 @@
+diff --git a/crates/core/src/backend/local_destination.rs b/crates/core/src/backend/local_destination.rs
+index 9cb0999..249305a 100644
+--- a/crates/core/src/backend/local_destination.rs
++++ b/crates/core/src/backend/local_destination.rs
+@@ -900,7 +900,7 @@ impl LocalDestination {
+         // Publish the replacement atomically; removing the destination first
+         // would lose it if link creation failed (e.g. quota or permission error).
+         let link_result = (|| -> std::io::Result<()> {
+-            match fs::hard_link(&source_path, &filename) {
++            match fs::copy(&source_path, &filename).map(|_| ()) { // mutant a3: links become copies
+                 Ok(()) => return Ok(()),
+                 Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => (),
+                 Err(err) => return Err(err),

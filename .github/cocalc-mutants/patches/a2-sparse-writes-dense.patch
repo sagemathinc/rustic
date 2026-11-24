@@ -1,0 +1,14 @@
+diff --git a/crates/core/src/backend/sparse.rs b/crates/core/src/backend/sparse.rs
+index 415d0e8..2efb269 100644
+--- a/crates/core/src/backend/sparse.rs
++++ b/crates/core/src/backend/sparse.rs
+@@ -40,7 +40,8 @@ pub(super) fn write_sparse(
+     required: bool,
+     ranges: &ZeroRanges,
+ ) -> io::Result<()> {
+-    write_ranges(file, offset, data, required, ranges, punch_hole)
++    _ = (required, ranges); // mutant a2: a sparse restore writes every byte
++    write_range(file, offset, data)
+ }
+ 
+ fn write_ranges(

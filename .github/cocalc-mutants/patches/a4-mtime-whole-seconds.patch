@@ -1,0 +1,13 @@
+diff --git a/crates/core/src/backend/local_destination.rs b/crates/core/src/backend/local_destination.rs
+index 9cb0999..c7a6402 100644
+--- a/crates/core/src/backend/local_destination.rs
++++ b/crates/core/src/backend/local_destination.rs
+@@ -318,7 +318,7 @@ impl LocalDestination {
+             set_symlink_file_times(
+                 filename,
+                 FileTime::from_system_time(atime.into()),
+-                FileTime::from_system_time(mtime.into()),
++                FileTime::from_unix_time(FileTime::from_system_time(mtime.into()).unix_seconds(), 0), // mutant a4
+             )
+             .map_err(LocalDestinationErrorKind::SettingTimeMetadataFailed)?;
+         }

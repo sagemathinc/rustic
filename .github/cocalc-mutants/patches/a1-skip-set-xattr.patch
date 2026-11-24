@@ -1,0 +1,14 @@
+diff --git a/crates/core/src/backend/local_destination.rs b/crates/core/src/backend/local_destination.rs
+index 9cb0999..7c2f85d 100644
+--- a/crates/core/src/backend/local_destination.rs
++++ b/crates/core/src/backend/local_destination.rs
+@@ -532,6 +532,9 @@ impl LocalDestination {
+     ) -> LocalDestinationResult<()> {
+         let filename = self.path(item)?;
+         let mut done = vec![false; extended_attributes.len()];
++        if true {
++            return Ok(()); // mutant a1: restore sets no xattrs
++        }
+ 
+         for curr_name in xattr::list(&filename).map_err(|err| {
+             LocalDestinationErrorKind::ListingXattrsFailed {

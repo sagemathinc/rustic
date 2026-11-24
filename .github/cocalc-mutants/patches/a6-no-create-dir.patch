@@ -1,0 +1,13 @@
+diff --git a/crates/core/src/backend/local_destination.rs b/crates/core/src/backend/local_destination.rs
+index 9cb0999..897b9bc 100644
+--- a/crates/core/src/backend/local_destination.rs
++++ b/crates/core/src/backend/local_destination.rs
+@@ -293,7 +293,7 @@ impl LocalDestination {
+     /// This will create the directory structure recursively.
+     pub(crate) fn create_dir(&self, item: impl AsRef<Path>) -> LocalDestinationResult<()> {
+         let dirname = self.path(item)?;
+-        fs::create_dir_all(dirname).map_err(LocalDestinationErrorKind::DirectoryCreationFailed)?;
++        _ = dirname; // mutant a6: restore creates no directories itself
+         Ok(())
+     }
+ 
