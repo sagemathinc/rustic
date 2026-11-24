@@ -1,0 +1,12 @@
+Fixtures are verbatim copies (the lock excerpt keeps whole [[package]] blocks verbatim):
+cli-*: sagemathinc/rustic@c2418b479634c806fdf4d37105ff5646b1b39c45
+core-*: sagemathinc/rustic_core@51115c4755fea8d0a5254e409d99e47a293d68c5 (core-crates-X = crates/X/Cargo.toml)
+cli-Cargo.lock-excerpt: the lock header plus each package whose source is the rustic_core git rev and its two neighbouring blocks
+94e9589f7a6e1453ceb9735d6b6779d6379dbc6b5f2616f821701bac9a53a429  cli-Cargo.lock-excerpt
+553032c77ac60d3e02a3038715f0dc487cd646ad4f4ca7e2af49d7829452bd64  cli-Cargo.toml
+44bb8f28c09a278282b9494a445a1c5b0fae69c4f9790109fa12137f28d544c2  core-Cargo.toml
+35fd61fc246dd4c8404abb93d7fbc25d59668555e7dc4866d17fb7cbb2760437  core-crates-backend-Cargo.toml
+2b92a0241452317a79e9a4f2d796e8101df6c159380990590e40c29d57a11ede  core-crates-config-Cargo.toml
+9f9afa04430c01355f4a2c52b5e33f5aa4178a9682f57e058649c1c18f758e91  core-crates-core-Cargo.toml
+233cae6656a4e50ef9ae934e02f4b285ee1305e3ec85ce8a2b8e147009fabb26  core-crates-extents-Cargo.toml
+347aef96151f72f9551bb4774b8c3b9a210cbfaad81d5ca27090e018dbf5e645  core-crates-testing-Cargo.toml

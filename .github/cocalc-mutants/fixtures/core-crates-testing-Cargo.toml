@@ -1,0 +1,21 @@
+[package]
+name = "rustic_testing"
+version = "0.5.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = true
+resolver = "3"
+rust-version = { workspace = true }
+description = """
+rustic_testuing - library for test support in rustic-rs
+"""
+
+[dependencies]
+aho-corasick = { workspace = true }
+bytes = { workspace = true }
+enum-map = "2.7.3"
+rustic_core = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

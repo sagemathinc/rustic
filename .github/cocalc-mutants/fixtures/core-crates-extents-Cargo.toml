@@ -1,0 +1,33 @@
+[package]
+name = "rustic_extents"
+version = "0.1.0"
+authors = ["the rustic-rs team"]
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = false
+rust-version = { workspace = true }
+description = """
+rustic_extents - btrfs extent signatures for content reuse (--reuse-extents)
+"""
+
+[target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dependencies]
+libc = "0.2.189"
+
+# The workspace forbids unsafe code; this crate holds the few btrfs ioctls
+# rustic needs, so it denies unsafe code everywhere except its `linux` module.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unused = { level = "warn", priority = -1 }
+unused_results = "warn"
+unused_qualifications = "warn"
+trivial_casts = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "warn"
+redundant_pub_crate = "allow"
+module_name_repetitions = "allow"
