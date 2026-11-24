@@ -1,0 +1,13 @@
+diff --git a/src/commands.rs b/src/commands.rs
+index 55148cd..2500a09 100644
+--- a/src/commands.rs
++++ b/src/commands.rs
+@@ -174,7 +174,7 @@ fn styles() -> Styles {
+ }
+ 
+ fn version() -> &'static str {
+-    option_env!("PROJECT_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
++    option_env!("PROJECT_VERSION").unwrap_or("0.0.0-cocalc-mutant-control")
+ }
+ 
+ pub(crate) fn program_version() -> String {

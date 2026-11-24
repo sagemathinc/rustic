@@ -1,0 +1,90 @@
+name: CoCalc mutants
+
+# Mutant proofs (PR-0b; .github/cocalc-mutants/SPEC.md).  Push-only, on purpose:
+# this fork's default branch is `main`, which holds no cocalc workflow, so
+# `schedule` and `workflow_dispatch` would never fire (a known gap, recorded in
+# SPEC.md).  The timeout-minutes values are derived in run_mutants.py's
+# time_model() and checked by its self-test: change both together.
+
+on:
+  push:
+    branches: ["cocalc/ci-mutants", "cocalc/mutants/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cocalc-mutants-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mutants:
+    name: Mutant proofs (cli)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 290
+    steps:
+      - id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        timeout-minutes: 3
+        with:
+          persist-credentials: false
+      - id: toolchain
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # v1
+        timeout-minutes: 5
+        with:
+          toolchain: 1.94.0
+      - id: loopback
+        timeout-minutes: 4
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq btrfs-progs
+          truncate -s 8G "$RUNNER_TEMP/mutants-btrfs.img"
+          sudo mkfs.btrfs -q "$RUNNER_TEMP/mutants-btrfs.img"
+          sudo mkdir /mnt/mutants
+          sudo mount -o loop "$RUNNER_TEMP/mutants-btrfs.img" /mnt/mutants
+      - id: fetch
+        timeout-minutes: 8
+        shell: bash
+        run: cargo fetch --locked
+      - id: mutants
+        timeout-minutes: 260
+        shell: bash
+        env:
+          INTENDED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 -I -B -m unittest discover -s .github/cocalc-mutants -p 'test_*.py'
+          mkdir "$RUNNER_TEMP/mutants-artifact"
+          # as root: the round-trip tests need it, and killing a process group works only without sudo in between
+          sudo env "PATH=$PATH" "HOME=$HOME" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
+            RUSTUP_TOOLCHAIN=1.94.0 "RUNNER_TEMP=$RUNNER_TEMP" \
+            python3 -I -B .github/cocalc-mutants/run_mutants.py run --mode cli --repo "$PWD" \
+            --out "$RUNNER_TEMP/mutants-artifact" --work-root /mnt/mutants \
+            --intended-sha "$INTENDED_SHA" --expect-rustc 1.94.0
+      - id: gate
+        if: always()
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/mutants-artifact"
+          python3 -I -B .github/cocalc-mutants/run_mutants.py gate-artifact "$RUNNER_TEMP/mutants-artifact"
+      - id: upload
+        if: always() && steps.gate.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        timeout-minutes: 6
+        with:
+          name: cocalc-mutants-${{ github.sha }}
+          path: ${{ runner.temp }}/mutants-artifact
+          if-no-files-found: error
+          retention-days: 30
+      - id: verdict
+        if: always()
+        timeout-minutes: 2
+        shell: bash
+        # a missing or unreadable results.json, or any verdict but PASS, fails the job
+        run: |
+          python3 -I -c 'import json, sys; v = json.load(open(sys.argv[1])).get("verdict"); print("verdict:", v); sys.exit(v != "PASS")' \
+            "$RUNNER_TEMP/mutants-artifact/results.json"
